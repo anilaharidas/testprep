@@ -1,0 +1,150 @@
+import { db } from '../db.js';
+import { config } from '../config.js';
+import { otpProvider } from './index.js';
+import {
+  ApiError,
+  hash,
+  verifyHash,
+  numericCode,
+  formulaCode,
+  randomToken,
+  nowIso,
+  isoIn,
+  isPast,
+} from '../util.js';
+
+const { otp } = config;
+
+const activeChallenge = db.prepare(`
+  SELECT * FROM otp_challenge
+  WHERE whatsapp_number = ? AND purpose = ? AND consumed_at IS NULL
+  ORDER BY id DESC LIMIT 1
+`);
+
+/**
+ * Create + deliver an OTP for a number/purpose, honouring the resend cooldown and
+ * any active lock. Returns metadata the client needs to run the OTP screen.
+ */
+export async function sendOtp({ whatsappNumber, purpose }) {
+  const existing = activeChallenge.get(whatsappNumber, purpose);
+
+  // Spec §06: after 3 wrong attempts we "lock re-entry for ~30 minutes OR require a
+  // fresh OTP send". A resend is the way out of the lock — it retires the locked
+  // challenge and starts a clean one — but it is still gated by the resend cooldown
+  // so it can't be used to brute-force faster than one code per cooldown window.
+  if (existing) {
+    const retryAt = addSeconds(existing.last_sent_at, otp.resendCooldownSeconds);
+    if (!isPast(retryAt)) {
+      throw new ApiError(429, 'otp_cooldown', 'A code was just sent. Wait before resending.', {
+        retryAt,
+      });
+    }
+  }
+
+  const code =
+    otp.strategy === 'phone_formula'
+      ? formulaCode(whatsappNumber, otp.formula, otp.length)
+      : numericCode(otp.length);
+  const expiresAt = isoIn(otp.ttlSeconds * 1000);
+
+  // One live challenge per number+purpose: retire the previous one.
+  if (existing) {
+    db.prepare(`UPDATE otp_challenge SET consumed_at = ? WHERE id = ?`).run(nowIso(), existing.id);
+  }
+
+  // In manual-relay mode the operator needs to read the code, so keep it in plain
+  // text; every other mode stores only the hash.
+  const operatorCode = otp.isManual ? code : null;
+
+  const info = db
+    .prepare(`
+      INSERT INTO otp_challenge (whatsapp_number, purpose, code_hash, operator_code, expires_at, last_sent_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `)
+    .run(whatsappNumber, purpose, hash(code), operatorCode, expiresAt, nowIso());
+
+  let delivery;
+  try {
+    delivery = await otpProvider.send({ whatsappNumber, code, purpose });
+  } catch (err) {
+    // Delivery failed — drop the challenge so the user isn't stuck behind the
+    // resend cooldown for a code that never arrived.
+    db.prepare(`DELETE FROM otp_challenge WHERE id = ?`).run(info.lastInsertRowid);
+    throw err;
+  }
+
+  return {
+    challengeId: info.lastInsertRowid,
+    expiresAt,
+    resendAvailableAt: addSeconds(nowIso(), otp.resendCooldownSeconds),
+    maxAttempts: otp.maxAttempts,
+    // Only the mock provider returns devCode.
+    devCode: delivery.devCode ?? null,
+  };
+}
+
+/**
+ * Check a submitted code. On success, consume the challenge and mint a short-lived
+ * verification token used to finish registration or password reset.
+ */
+export function verifyOtp({ whatsappNumber, code, purpose }) {
+  const challenge = activeChallenge.get(whatsappNumber, purpose);
+
+  if (!challenge) {
+    throw new ApiError(400, 'otp_not_found', 'Request a new code.');
+  }
+  if (challenge.locked_until && !isPast(challenge.locked_until)) {
+    throw new ApiError(429, 'otp_locked', 'Too many wrong attempts. Try again later.', {
+      lockedUntil: challenge.locked_until,
+    });
+  }
+  if (isPast(challenge.expires_at)) {
+    throw new ApiError(400, 'otp_expired', 'Code expired.', { canResend: true });
+  }
+
+  if (!verifyHash(String(code), challenge.code_hash)) {
+    const attempts = challenge.attempts + 1;
+    const attemptsLeft = Math.max(0, otp.maxAttempts - attempts);
+
+    if (attempts >= otp.maxAttempts) {
+      const lockedUntil = isoIn(otp.lockMinutes * 60 * 1000);
+      db.prepare(`UPDATE otp_challenge SET attempts = ?, locked_until = ? WHERE id = ?`).run(
+        attempts,
+        lockedUntil,
+        challenge.id,
+      );
+      throw new ApiError(429, 'otp_locked', 'Too many wrong attempts.', { lockedUntil });
+    }
+
+    db.prepare(`UPDATE otp_challenge SET attempts = ? WHERE id = ?`).run(attempts, challenge.id);
+    throw new ApiError(400, 'otp_wrong', 'Incorrect code.', { attemptsLeft });
+  }
+
+  db.prepare(`UPDATE otp_challenge SET consumed_at = ?, verified_at = ? WHERE id = ?`).run(
+    nowIso(),
+    nowIso(),
+    challenge.id,
+  );
+
+  const token = randomToken();
+  db.prepare(`
+    INSERT INTO verification_token (token, whatsapp_number, purpose, expires_at)
+    VALUES (?, ?, ?, ?)
+  `).run(token, whatsappNumber, purpose, isoIn(config.verificationTokenTtlHours * 3600 * 1000));
+
+  return { verificationToken: token };
+}
+
+/** Consume a verification token, asserting number + purpose. */
+export function consumeVerificationToken({ token, purpose }) {
+  const row = db.prepare(`SELECT * FROM verification_token WHERE token = ?`).get(token);
+  if (!row || row.purpose !== purpose || row.consumed_at || isPast(row.expires_at)) {
+    throw new ApiError(400, 'verification_invalid', 'Verification expired. Start again.');
+  }
+  db.prepare(`UPDATE verification_token SET consumed_at = ? WHERE token = ?`).run(nowIso(), token);
+  return { whatsappNumber: row.whatsapp_number };
+}
+
+function addSeconds(iso, seconds) {
+  return new Date(new Date(iso).getTime() + seconds * 1000).toISOString();
+}

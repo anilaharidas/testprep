@@ -1,0 +1,57 @@
+export class ApiError extends Error {
+  constructor(payload, status) {
+    super(payload?.message || 'Request failed');
+    this.code = payload?.code || 'error';
+    this.status = status;
+    this.data = payload || {};
+  }
+}
+
+async function request(path, { method = 'GET', body } = {}) {
+  const res = await fetch(`/api${path}`, {
+    method,
+    credentials: 'include',
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  let payload = null;
+  try {
+    payload = await res.json();
+  } catch {
+    /* no body */
+  }
+
+  if (!res.ok || payload?.ok === false) {
+    throw new ApiError(payload, res.status);
+  }
+  return payload;
+}
+
+export const api = {
+  config: () => request('/config'),
+  me: () => request('/me'),
+
+  sendOtp: (whatsappNumber, purpose) =>
+    request('/otp/send', { method: 'POST', body: { whatsappNumber, purpose } }),
+  verifyOtp: (whatsappNumber, code, purpose) =>
+    request('/otp/verify', { method: 'POST', body: { whatsappNumber, code, purpose } }),
+
+  register: (payload) => request('/register', { method: 'POST', body: payload }),
+  login: (whatsappNumber, password) =>
+    request('/login', { method: 'POST', body: { whatsappNumber, password } }),
+  resetPassword: (verificationToken, password) =>
+    request('/password-reset', { method: 'POST', body: { verificationToken, password } }),
+  logout: () => request('/logout', { method: 'POST' }),
+
+  addDependent: (name, grade) =>
+    request('/dependents', { method: 'POST', body: { name, grade } }),
+  removeDependent: (id) => request(`/dependents/${id}`, { method: 'DELETE' }),
+
+  // operator panel
+  adminLogin: (slug, password) =>
+    request('/admin/login', { method: 'POST', body: { slug, password } }),
+  adminLogout: () => request('/admin/logout', { method: 'POST' }),
+  adminSession: () => request('/admin/session'),
+  adminRequests: () => request('/admin/requests'),
+};
