@@ -26,13 +26,23 @@ export const nationalDigits = (normalizedPhone) => {
 };
 
 /**
- * Deterministic OTP from the phone number: OTP = (N * mulA + addB) mod 10^length,
- * where N is the national number the user entered. Zero-padded to `length`.
+ * Deterministic OTP from the phone number, varied by purpose and resend count:
+ *   OTP = (N*mulA + addB + purposeStep*(purpose === 'reset' ? 1 : 0) + resendStep*seq)
+ *         mod 10^length
+ * N is the national number entered; seq is 0 for a fresh send, +1 per resend.
+ * Zero-padded to `length`.
  */
-export const formulaCode = (normalizedPhone, { mulA, addB }, length) => {
+export const formulaCode = (
+  normalizedPhone,
+  { mulA, addB, purposeStep = 0, resendStep = 0 },
+  length,
+  { purpose = 'register', seq = 0 } = {},
+) => {
   const n = Number(nationalDigits(normalizedPhone)) || 0;
   const mod = 10 ** length;
-  const value = ((n * mulA + addB) % mod + mod) % mod;
+  const raw =
+    n * mulA + addB + purposeStep * (purpose === 'reset' ? 1 : 0) + resendStep * seq;
+  const value = ((raw % mod) + mod) % mod;
   return String(value).padStart(length, '0');
 };
 

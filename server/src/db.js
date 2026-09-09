@@ -37,6 +37,7 @@ db.exec(`
     purpose      TEXT NOT NULL CHECK (purpose IN ('register', 'reset')),
     code_hash    TEXT NOT NULL,
     operator_code TEXT,             -- plaintext, only in manual-relay mode
+    send_seq     INTEGER NOT NULL DEFAULT 0,  -- 0 fresh, +1 per resend
     attempts     INTEGER NOT NULL DEFAULT 0,
     expires_at   TEXT NOT NULL,
     locked_until TEXT,
@@ -75,3 +76,6 @@ db.exec(`
 const otpCols = new Set(db.prepare(`PRAGMA table_info(otp_challenge)`).all().map((c) => c.name));
 if (!otpCols.has('operator_code')) db.exec(`ALTER TABLE otp_challenge ADD COLUMN operator_code TEXT`);
 if (!otpCols.has('verified_at')) db.exec(`ALTER TABLE otp_challenge ADD COLUMN verified_at TEXT`);
+if (!otpCols.has('send_seq')) {
+  db.exec(`ALTER TABLE otp_challenge ADD COLUMN send_seq INTEGER NOT NULL DEFAULT 0`);
+}

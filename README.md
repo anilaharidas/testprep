@@ -51,8 +51,13 @@ npm run dev
    ADMIN_PASSWORD=<something strong>
    ADMIN_PANEL_SLUG=<random>                 # blank = auto-generated, printed on boot
    ```
-2. Code is **deterministic**: `OTP = (N × 7919 + 104729) mod 10000`, N = the national
-   number the user typed. 4 digits. Config: `OTP_FORMULA_MUL`, `OTP_FORMULA_ADD`.
+2. Code is **deterministic**, varied by purpose and resend count:
+   `OTP = (N × 7919 + 104729 + 2749·[reset] + 3517·seq) mod 10000`
+   — N = national number typed, `seq` = 0 on a fresh send and +1 per resend. So a
+   password-reset code differs from the register code, and every **Resend** gives a new
+   code. A first register send is still exactly `(N × 7919 + 104729) mod 10000`.
+   Config: `OTP_FORMULA_MUL`, `OTP_FORMULA_ADD`, `OTP_FORMULA_PURPOSE_STEP`,
+   `OTP_FORMULA_RESEND_STEP`. 4 digits.
 3. User clicks **Request code on WhatsApp** → their WhatsApp opens with a short
    prefilled message to the operator (the operator sees who sent it from the WhatsApp
    chat; the number + code are also in the operator panel and the Telegram push).

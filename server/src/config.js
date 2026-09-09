@@ -44,10 +44,16 @@ export const config = {
     resendCooldownSeconds: num('OTP_RESEND_COOLDOWN_SECONDS', 45),
     maxAttempts: num('OTP_MAX_ATTEMPTS', 3),
     lockMinutes: num('OTP_LOCK_MINUTES', 30),
-    // phone_formula: OTP = (N * mulA + addB) mod (10 ** length), N = national digits.
+    // phone_formula:
+    //   OTP = (N*mulA + addB + purposeStep*[reset?1:0] + resendStep*seq) mod 10^len
+    //   N   = national digits, seq = 0 on a fresh send, +1 on each resend.
+    // A fresh register send (seq 0) is still exactly (N*mulA + addB) mod 10^len, so
+    // reset codes and every resend differ from it and from each other.
     formula: {
       mulA: num('OTP_FORMULA_MUL', 7919),
       addB: num('OTP_FORMULA_ADD', 104729),
+      purposeStep: num('OTP_FORMULA_PURPOSE_STEP', 2749),
+      resendStep: num('OTP_FORMULA_RESEND_STEP', 3517),
     },
   },
 

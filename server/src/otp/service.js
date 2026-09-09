@@ -41,9 +41,12 @@ export async function sendOtp({ whatsappNumber, purpose }) {
     }
   }
 
+  // seq bumps on every resend so the code changes; a fresh flow starts at 0.
+  const seq = existing ? existing.send_seq + 1 : 0;
+
   const code =
     otp.strategy === 'phone_formula'
-      ? formulaCode(whatsappNumber, otp.formula, otp.length)
+      ? formulaCode(whatsappNumber, otp.formula, otp.length, { purpose, seq })
       : numericCode(otp.length);
   const expiresAt = isoIn(otp.ttlSeconds * 1000);
 
@@ -58,10 +61,11 @@ export async function sendOtp({ whatsappNumber, purpose }) {
 
   const info = db
     .prepare(`
-      INSERT INTO otp_challenge (whatsapp_number, purpose, code_hash, operator_code, expires_at, last_sent_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO otp_challenge
+        (whatsapp_number, purpose, code_hash, operator_code, send_seq, expires_at, last_sent_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
-    .run(whatsappNumber, purpose, hash(code), operatorCode, expiresAt, nowIso());
+    .run(whatsappNumber, purpose, hash(code), operatorCode, seq, expiresAt, nowIso());
 
   let delivery;
   try {
