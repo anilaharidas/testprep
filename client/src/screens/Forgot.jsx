@@ -22,16 +22,18 @@ export default function Forgot() {
 
   async function sendOtp(e) {
     e.preventDefault();
+    // Open WhatsApp synchronously, inside the click gesture (mobile blocks it
+    // otherwise after the await).
+    if (cfg?.otpMode === 'manual' && cfg.manualWhatsappUrl) {
+      window.open(cfg.manualWhatsappUrl, '_blank', 'noopener');
+    }
     setBusy(true);
     setError(null);
     try {
       const res = await api.sendOtp(fullNumber(country, local), 'reset');
       setSendMeta(res);
       setNumber(res.whatsappNumber);
-      if (res.manual && res.whatsappUrl) {
-        setManualUrl(res.whatsappUrl);
-        window.open(res.whatsappUrl, '_blank', 'noopener');
-      }
+      if (res.whatsappUrl) setManualUrl(res.whatsappUrl);
       setStep(1);
     } catch (err) {
       setError(err.message || 'Could not send the code.');

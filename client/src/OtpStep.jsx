@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api, ApiError } from './api.js';
+import { useAppConfig } from './useAppConfig.js';
 import {
   Notice,
   DevCodeNotice,
@@ -17,7 +18,8 @@ import {
  *   otpLength       - digits expected
  *   sendMeta        - result of the initial /otp/send call
  *   manual          - true when the operator relays the code by hand
- *   whatsappUrl     - wa.me link to (re)open the operator chat (manual mode)
+ *   whatsappUrl     - wa.me link from /otp/send (manual mode); a static fallback
+ *                     also comes from /config
  *   onVerified(token)
  *   onBack()
  */
@@ -31,6 +33,7 @@ export default function OtpStep({
   onVerified,
   onBack,
 }) {
+  const cfg = useAppConfig();
   const [meta, setMeta] = useState(sendMeta);
   const [waUrl, setWaUrl] = useState(whatsappUrl);
   const [code, setCode] = useState('');
@@ -43,6 +46,11 @@ export default function OtpStep({
   const expiresIn = useCountdown(meta?.expiresAt);
   const lockLeft = useCountdown(lockedUntil);
   const locked = lockLeft > 0;
+
+  const openWhatsApp = () => {
+    const url = waUrl || cfg?.manualWhatsappUrl;
+    if (url) window.open(url, '_blank', 'noopener');
+  };
 
   async function verify(e) {
     e.preventDefault();
@@ -58,7 +66,10 @@ export default function OtpStep({
     }
   }
 
-  async function resend() {
+  // Ask the server for a genuinely new code (cooldown-gated). Not the same as
+  // just re-opening WhatsApp.
+  async function requestNewCode() {
+    if (manual) openWhatsApp(); // sync, before the await
     setBusy(true);
     setError(null);
     setAttemptsLeft(null);
@@ -67,19 +78,13 @@ export default function OtpStep({
       setMeta(res);
       setCode('');
       setLockedUntil(null);
-      if (res.whatsappUrl) {
-        setWaUrl(res.whatsappUrl);
-        window.open(res.whatsappUrl, '_blank', 'noopener');
-      }
+      if (res.whatsappUrl) setWaUrl(res.whatsappUrl);
+      if (!manual && res.whatsappUrl) window.open(res.whatsappUrl, '_blank', 'noopener');
     } catch (err) {
       handle(err);
     } finally {
       setBusy(false);
     }
-  }
-
-  function openWhatsApp() {
-    if (waUrl) window.open(waUrl, '_blank', 'noopener');
   }
 
   function handle(err) {
@@ -93,15 +98,13 @@ export default function OtpStep({
     }
   }
 
-  const resendLabel = manual ? 'Open WhatsApp again' : 'Resend code';
-
   return (
     <form onSubmit={verify}>
       <h1>Enter the code</h1>
       {manual ? (
         <p className="sub">
-          We've opened WhatsApp so you can message us from <strong>{whatsappNumber}</strong>. Send
-          that message — we'll reply with a {otpLength}-digit code. Enter it below.
+          Send us the WhatsApp message we opened for you — we'll reply to{' '}
+          <strong>{whatsappNumber}</strong> with a {otpLength}-digit code. Enter it below.
         </p>
       ) : (
         <p className="sub">
@@ -113,19 +116,18 @@ export default function OtpStep({
 
       {manual && (
         <Notice kind="info">
-          Didn't see WhatsApp open?{' '}
+          WhatsApp didn't open, or you closed it?{' '}
           <button type="button" className="btn-link" onClick={openWhatsApp}>
-            Open the chat
+            Open the chat again
           </button>{' '}
-          and send us the message.
+          and send the message — nothing is sent until you do.
         </Notice>
       )}
 
       {locked && (
         <Notice kind="warn">
           This code is locked after too many wrong attempts. Wait {friendlyLockTime(lockedUntil)}, or
-          {manual ? ' message us again' : ' get a fresh code'} with the button below
-          {resendIn > 0 ? ` (available in ${resendIn}s)` : ''}.
+          get a fresh code below{resendIn > 0 ? ` (in ${resendIn}s)` : ''}.
         </Notice>
       )}
 
@@ -142,22 +144,33 @@ export default function OtpStep({
       <p className="count-line">
         {expiresIn > 0
           ? `Code expires in ${formatMMSS(expiresIn)}.`
-          : `Code expired — ${manual ? 'message us again' : 'resend'} to get a new one.`}
+          : 'Code expired — get a new one below.'}
       </p>
 
       {locked ? (
-        <button type="button" className="btn" onClick={resend} disabled={busy || resendIn > 0}>
-          {busy
-            ? 'Working…'
-            : resendIn > 0
-              ? `Try again in ${resendIn}s`
-              : manual
-                ? 'Message us again'
-                : 'Resend a new code'}
+        <button
+          type="button"
+          className="btn"
+          onClick={requestNewCode}
+          disabled={busy || resendIn > 0}
+        >
+          {busy ? 'Working…' : resendIn > 0 ? `Get a new code in ${resendIn}s` : 'Get a new code'}
         </button>
       ) : (
         <button className="btn" type="submit" disabled={busy || code.length !== otpLength}>
           {busy ? 'Checking…' : 'Verify'}
+        </button>
+      )}
+
+      {manual && !locked && (
+        <button
+          type="button"
+          className="btn secondary"
+          style={{ marginTop: 10 }}
+          onClick={openWhatsApp}
+          disabled={busy}
+        >
+          Open WhatsApp again
         </button>
       )}
 
@@ -169,10 +182,14 @@ export default function OtpStep({
           <button
             type="button"
             className="btn-link"
-            onClick={resend}
+            onClick={requestNewCode}
             disabled={busy || resendIn > 0}
           >
-            {resendIn > 0 ? `${manual ? 'Wait' : 'Resend in'} ${resendIn}s` : resendLabel}
+            {resendIn > 0
+              ? `New code in ${resendIn}s`
+              : manual
+                ? 'Code not working? Get a new one'
+                : 'Resend code'}
           </button>
         )}
       </div>

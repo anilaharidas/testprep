@@ -48,6 +48,11 @@ export default function Register() {
 
   async function sendOtp(e) {
     e.preventDefault();
+    // Open WhatsApp synchronously, inside the click gesture — doing it after the
+    // await gets the popup blocked on mobile.
+    if (cfg.otpMode === 'manual' && cfg.manualWhatsappUrl) {
+      window.open(cfg.manualWhatsappUrl, '_blank', 'noopener');
+    }
     setBusy(true);
     setError(null);
     setNumberTaken(false);
@@ -55,10 +60,7 @@ export default function Register() {
       const res = await api.sendOtp(number, 'register');
       setSendMeta(res);
       setVerifiedNumber(res.whatsappNumber);
-      if (res.manual && res.whatsappUrl) {
-        setManualUrl(res.whatsappUrl);
-        window.open(res.whatsappUrl, '_blank', 'noopener');
-      }
+      if (res.whatsappUrl) setManualUrl(res.whatsappUrl);
       setStep(2);
     } catch (err) {
       if (err instanceof ApiError && err.code === 'number_taken') {

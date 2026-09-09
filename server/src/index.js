@@ -21,7 +21,7 @@ import {
 } from './accounts.js';
 
 // wa.me deep link the requester opens to ask the operator for their code.
-function manualRelayUrl(whatsappNumber) {
+function manualRelayUrl(whatsappNumber = '') {
   const text = config.manual.requestMessage.replace('{number}', whatsappNumber);
   return `https://wa.me/${config.manual.operatorNumber}?text=${encodeURIComponent(text)}`;
 }
@@ -68,6 +68,9 @@ app.get('/api/config', (req, res) => {
     otpProvider: config.otpProvider,
     otpLength: config.otp.length,
     otpMode: config.otp.isManual ? 'manual' : 'auto',
+    // Static wa.me link so the client can (re-)open the operator chat instantly,
+    // without waiting on /otp/send (keeps the click inside the user gesture).
+    manualWhatsappUrl: config.otp.isManual ? manualRelayUrl() : null,
   });
 });
 

@@ -28,14 +28,36 @@ const activeChallenge = db.prepare(`
 export async function sendOtp({ whatsappNumber, purpose }) {
   const existing = activeChallenge.get(whatsappNumber, purpose);
 
-  // Spec §06: after 3 wrong attempts we "lock re-entry for ~30 minutes OR require a
-  // fresh OTP send". A resend is the way out of the lock — it retires the locked
-  // challenge and starts a clean one — but it is still gated by the resend cooldown
-  // so it can't be used to brute-force faster than one code per cooldown window.
-  if (existing) {
+  // Resend cooldown. In manual mode nothing is actually sent by the server — the
+  // user just needs to (re-)open WhatsApp — so a repeat click inside the window is
+  // treated as idempotent: return the still-valid challenge unchanged rather than
+  // erroring or minting a new code. Other modes keep the hard error so the user
+  // knows a second message was not sent.
+  if (existing && !existing.locked_until) {
+    const retryAt = addSeconds(existing.last_sent_at, otp.resendCooldownSeconds);
+    if (!isPast(retryAt) && !isPast(existing.expires_at)) {
+      if (otp.isManual) {
+        return {
+          challengeId: existing.id,
+          expiresAt: existing.expires_at,
+          resendAvailableAt: retryAt,
+          maxAttempts: otp.maxAttempts,
+          devCode: null,
+          reused: true,
+        };
+      }
+      throw new ApiError(429, 'otp_cooldown', 'A code was just sent. Wait before resending.', {
+        retryAt,
+      });
+    }
+  }
+
+  // A locked challenge: a resend is the documented way out (still cooldown-gated),
+  // retiring the locked challenge and starting a clean one.
+  if (existing && existing.locked_until && !isPast(existing.locked_until)) {
     const retryAt = addSeconds(existing.last_sent_at, otp.resendCooldownSeconds);
     if (!isPast(retryAt)) {
-      throw new ApiError(429, 'otp_cooldown', 'A code was just sent. Wait before resending.', {
+      throw new ApiError(429, 'otp_cooldown', 'Wait a moment before requesting a new code.', {
         retryAt,
       });
     }
