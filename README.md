@@ -20,18 +20,32 @@ Built from `Test Prep Sign-Up Flow.pdf` (Product Spec V1).
 ## MCQ question bank
 
 Seeded from `server/seed/cbse-mcq.csv` (CBSE grades 6–10 · Maths/Mathematics, Science,
-English, Social — ~29.5k questions) into a `mcq_question` table on first boot
+English, Social — 29,557 raw rows) into a `mcq_question` table on first boot
 (`server/src/mcq/seed.js`, auto-runs whenever the table is empty — safe to wipe
-`server/data/` and restart). Two cleanups applied on import, everything else kept as-is:
+`server/data/` and restart). **Question, options, correct answer, and difficulty are
+imported byte-for-byte from the CSV — never rewritten, reordered, or filtered.** Two
+things are cleaned up, both about *which/how many rows*, not their content:
 
 - `Maths`/`Mathematics` subject spelling normalized to `Mathematics` (grade 10 used
   "Maths" in the source file, every other grade used "Mathematics" — same subject).
 - A trailing generator artifact like `[Source gegp203.pdf, case 13362]` (~12% of rows)
   is stripped from the question text — not meant for students to see.
+- **Duplicate rows are collapsed to one.** The source generator asks the same question
+  with the same 4 answer texts many times over (e.g. grade 8 Maths' "A ratio compares:"
+  40 times in one chapter) — distinguishable, pre-strip, only by the `[Source]` tag's
+  case id. Import keeps one row per (grade, subject, chapter, question, answer-set),
+  ignoring which letter the correct answer landed on. 29,557 → **27,158** rows; verified
+  zero cases where duplicates disagreed on the correct answer. Quiz generation also
+  over-fetches and drops any repeat by question text before returning results, so the
+  rare cross-chapter duplicate (question legitimately listed under two chapters, ~18
+  cases) still can't produce the same question twice in one "All chapters" quiz.
 
 A grade+subject can have more than one chapter sharing the same chapter number (e.g. two
 different "Chapter 1"s from different books) — the chapter picker and quiz API key on
 **chapter number + chapter title together**, not the number alone.
+
+**Scoring**: 1 mark per correct answer, no partial or negative marking — a quiz's score
+is exactly the count of correctly-answered questions.
 
 API: `GET /api/mcq/subjects`, `GET /api/mcq/chapters`, `POST /api/mcq/quiz` (build, no
 answers included), `POST /api/mcq/quiz/grade` (score + per-question correct/incorrect,

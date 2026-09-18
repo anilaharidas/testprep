@@ -138,7 +138,8 @@ export default function Quiz() {
         <form onSubmit={startQuiz}>
           <h1>Practice quiz</h1>
           <p className="sub">
-            {dependent ? `${dependent.name} · Grade ${dependent.grade}` : 'Grade practice'}
+            {dependent ? `${dependent.name} · Grade ${dependent.grade}` : 'Grade practice'} · 1 mark
+            for each correct answer.
           </p>
 
           {error && <Notice kind="error">{error}</Notice>}
@@ -315,7 +316,8 @@ function QuizResult({ result, dependentName, onRetry, nav }) {
           {result.score}/{result.total}
         </div>
         <div className="muted">
-          {dependentName} scored {pct}%
+          {dependentName} scored {result.score} mark{result.score === 1 ? '' : 's'} out of{' '}
+          {result.total} ({pct}%) — 1 mark per correct answer, no negative marking.
         </div>
       </div>
 

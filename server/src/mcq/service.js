@@ -65,7 +65,11 @@ export function buildQuiz({ account, dependentId, subject, chapterNo, chapter, c
     params.push(chapterNo);
   }
 
-  const rows = db
+  // Import-time dedup collapses repeats within a chapter, but the same question
+  // can (rarely) live in two different chapters — invisible to that dedup, and
+  // "All chapters" quizzes can draw both. Over-fetch and drop duplicate question
+  // text here so no quiz ever shows the same question twice, however it arises.
+  const candidates = db
     .prepare(`
       SELECT id, chapter, section, question, option_a, option_b, option_c, option_d, difficulty
       FROM mcq_question
@@ -73,7 +77,16 @@ export function buildQuiz({ account, dependentId, subject, chapterNo, chapter, c
       ORDER BY RANDOM()
       LIMIT ?
     `)
-    .all(...params, n);
+    .all(...params, n * 3);
+
+  const seenQuestions = new Set();
+  const rows = [];
+  for (const r of candidates) {
+    if (rows.length >= n) break;
+    if (seenQuestions.has(r.question)) continue;
+    seenQuestions.add(r.question);
+    rows.push(r);
+  }
 
   if (rows.length === 0) {
     throw new ApiError(404, 'no_questions', 'No questions available for this selection.');

@@ -49,7 +49,7 @@ export function seedMcqIfEmpty() {
     for (const r of records) insertStmt.run(r);
   });
 
-  const records = rows.map((row) => {
+  const allRecords = rows.map((row) => {
     const subject = SUBJECT_ALIASES[clean(row.Subject)] || clean(row.Subject);
     return {
       source_no: Number(row['Sl.']) || null,
@@ -69,8 +69,37 @@ export function seedMcqIfEmpty() {
     };
   });
 
+  // The source generator repeats the same question + the same 4 answer texts
+  // (only the [Source ...] case id and which letter the correct one lands on
+  // differ) — e.g. "A ratio compares:" appears 40 times under one grade 8
+  // chapter. That reads as the identical question resurfacing in one quiz.
+  // Collapse those to a single row, scoped to (grade, subject, chapter) so a
+  // question that legitimately appears in two different chapters still does —
+  // only true within-chapter repeats are dropped. Field values on the row that
+  // IS kept are untouched.
+  const seen = new Set();
+  const records = [];
+  let dupes = 0;
+  for (const r of allRecords) {
+    const optionSet = [r.option_a, r.option_b, r.option_c, r.option_d]
+      .filter(Boolean)
+      .slice()
+      .sort()
+      .join('');
+    const key = [r.grade, r.subject, r.chapter_no, r.chapter, r.question, optionSet].join('');
+    if (seen.has(key)) {
+      dupes += 1;
+      continue;
+    }
+    seen.add(key);
+    records.push(r);
+  }
+
   insertAll(records);
   // eslint-disable-next-line no-console
-  console.log(`[mcq] seeded ${records.length} questions from ${path.basename(CSV_PATH)}`);
+  console.log(
+    `[mcq] seeded ${records.length} questions from ${path.basename(CSV_PATH)}` +
+      (dupes ? ` (skipped ${dupes} duplicate rows: same question + same answers repeated)` : ''),
+  );
   return { seeded: true, count: records.length };
 }
