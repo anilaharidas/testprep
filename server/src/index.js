@@ -8,6 +8,9 @@ import { startMaintenance } from './maintenance.js';
 import { ApiError, normalizePhone } from './util.js';
 import { sendOtp, verifyOtp } from './otp/service.js';
 import { adminRouter } from './admin.js';
+import { mcqRouter } from './mcq/routes.js';
+import { seedMcqIfEmpty } from './mcq/seed.js';
+import { requireAuth, wrap, SESSION_COOKIE } from './middleware.js';
 import {
   register,
   login,
@@ -31,22 +34,12 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(cors({ origin: config.clientOrigin, credentials: true }));
 
-const SESSION_COOKIE = 'tp_session';
 const cookieOpts = {
   httpOnly: true,
   sameSite: 'lax',
   secure: config.isProd,
   maxAge: config.sessionTtlDays * 86400 * 1000,
 };
-
-const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-
-function requireAuth(req, res, next) {
-  const account = sessionAccount(req.cookies[SESSION_COOKIE]);
-  if (!account) return next(new ApiError(401, 'unauthenticated', 'Please log in.'));
-  req.account = account;
-  return next();
-}
 
 function requirePhone(req) {
   const phone = normalizePhone(req.body?.whatsappNumber);
@@ -75,6 +68,7 @@ app.get('/api/config', (req, res) => {
 });
 
 app.use('/api/admin', adminRouter);
+app.use('/api/mcq', mcqRouter);
 
 // ---- OTP --------------------------------------------------------------
 
@@ -194,10 +188,12 @@ app.use((err, req, res, next) => {
 });
 
 startMaintenance();
+const mcqSeed = seedMcqIfEmpty();
 
 app.listen(config.port, () => {
   /* eslint-disable no-console */
   console.log(`API on http://localhost:${config.port}  (OTP provider: ${config.otpProvider})`);
+  console.log(`MCQ bank: ${mcqSeed.count} questions${mcqSeed.seeded ? ' (just seeded)' : ''}`);
   if (config.otp.isManual) {
     console.log(`Operator panel: ${config.clientOrigin}/panel/${config.admin.panelSlug}`);
     if (config.admin.password === 'change-me') {

@@ -13,6 +13,30 @@ Built from `Test Prep Sign-Up Flow.pdf` (Product Spec V1).
   everyday login — the password set at registration is the everyday credential.
 - **Free-mode caps** are enforced at the "add child / student" step, not at registration,
   so an account can start with zero dependents.
+- **MCQ practice**: from the dashboard, a parent/teacher picks a dependent, then subject
+  (+ optional chapter) and takes a multiple-choice practice quiz, graded instantly with a
+  per-question review. Attempt history is kept per dependent.
+
+## MCQ question bank
+
+Seeded from `server/seed/cbse-mcq.csv` (CBSE grades 6–10 · Maths/Mathematics, Science,
+English, Social — ~29.5k questions) into a `mcq_question` table on first boot
+(`server/src/mcq/seed.js`, auto-runs whenever the table is empty — safe to wipe
+`server/data/` and restart). Two cleanups applied on import, everything else kept as-is:
+
+- `Maths`/`Mathematics` subject spelling normalized to `Mathematics` (grade 10 used
+  "Maths" in the source file, every other grade used "Mathematics" — same subject).
+- A trailing generator artifact like `[Source gegp203.pdf, case 13362]` (~12% of rows)
+  is stripped from the question text — not meant for students to see.
+
+A grade+subject can have more than one chapter sharing the same chapter number (e.g. two
+different "Chapter 1"s from different books) — the chapter picker and quiz API key on
+**chapter number + chapter title together**, not the number alone.
+
+API: `GET /api/mcq/subjects`, `GET /api/mcq/chapters`, `POST /api/mcq/quiz` (build, no
+answers included), `POST /api/mcq/quiz/grade` (score + per-question correct/incorrect,
+records an attempt), `GET /api/mcq/attempts` (history) — all under `requireAuth` and
+scoped to a dependent the logged-in account owns.
 
 ## Stack
 

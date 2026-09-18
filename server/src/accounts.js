@@ -174,8 +174,16 @@ export function addDependent(account, { name, grade }) {
 }
 
 export function removeDependent(account, dependentId) {
-  const dep = db.prepare(`SELECT * FROM dependent WHERE id = ? AND account_id = ?`).get(dependentId, account.id);
-  if (!dep) throw new ApiError(404, 'not_found', 'Not found.');
-  db.prepare(`DELETE FROM dependent WHERE id = ?`).run(dependentId);
+  const dep = getOwnedDependent(account, dependentId);
+  db.prepare(`DELETE FROM dependent WHERE id = ?`).run(dep.id);
   return accountView(findById.get(account.id));
+}
+
+/** A dependent row, asserting it belongs to this account. */
+export function getOwnedDependent(account, dependentId) {
+  const dep = db
+    .prepare(`SELECT * FROM dependent WHERE id = ? AND account_id = ?`)
+    .get(dependentId, account.id);
+  if (!dep) throw new ApiError(404, 'not_found', 'Dependent not found.');
+  return dep;
 }

@@ -70,6 +70,41 @@ db.exec(`
     expires_at TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  -- Question bank, seeded from server/seed/cbse-mcq.csv (see src/mcq/seed.js).
+  CREATE TABLE IF NOT EXISTS mcq_question (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_no      INTEGER,               -- original "Sl." from the CSV
+    grade          TEXT    NOT NULL,
+    subject        TEXT    NOT NULL,
+    chapter_no     TEXT,
+    chapter        TEXT    NOT NULL,
+    section_number TEXT,
+    section        TEXT,
+    question       TEXT    NOT NULL,
+    option_a       TEXT    NOT NULL,
+    option_b       TEXT    NOT NULL,
+    option_c       TEXT,
+    option_d       TEXT,
+    correct_option TEXT    NOT NULL CHECK (correct_option IN ('A', 'B', 'C', 'D')),
+    difficulty     INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_mcq_grade_subject ON mcq_question (grade, subject);
+  CREATE INDEX IF NOT EXISTS idx_mcq_chapter ON mcq_question (grade, subject, chapter_no);
+
+  -- One row per submitted practice quiz.
+  CREATE TABLE IF NOT EXISTS mcq_attempt (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id   INTEGER NOT NULL REFERENCES account(id) ON DELETE CASCADE,
+    dependent_id INTEGER NOT NULL REFERENCES dependent(id) ON DELETE CASCADE,
+    grade        TEXT    NOT NULL,
+    subject      TEXT    NOT NULL,
+    chapter_no   TEXT,
+    score        INTEGER NOT NULL,
+    total        INTEGER NOT NULL,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_mcq_attempt_dependent ON mcq_attempt (dependent_id, created_at);
 `);
 
 // Lightweight migrations for databases created before a column existed.

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { useAppConfig } from '../useAppConfig.js';
@@ -70,9 +71,14 @@ export default function Dashboard() {
                 <span className="dep-name">{d.name}</span>{' '}
                 <span className="dep-grade">· Grade {d.grade}</span>
               </span>
-              <button className="btn-link" onClick={() => remove(d.id)}>
-                Remove
-              </button>
+              <span className="dep-actions">
+                <Link className="btn-link" to={`/quiz/${d.id}`}>
+                  Practice
+                </Link>
+                <button className="btn-link danger" onClick={() => remove(d.id)}>
+                  Remove
+                </button>
+              </span>
             </li>
           ))}
         </ul>

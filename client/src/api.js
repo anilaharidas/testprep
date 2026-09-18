@@ -54,4 +54,14 @@ export const api = {
   adminLogout: () => request('/admin/logout', { method: 'POST' }),
   adminSession: () => request('/admin/session'),
   adminRequests: () => request('/admin/requests'),
+
+  // MCQ practice
+  mcqSubjects: (dependentId) => request(`/mcq/subjects?dependentId=${dependentId}`),
+  mcqChapters: (dependentId, subject) =>
+    request(`/mcq/chapters?dependentId=${dependentId}&subject=${encodeURIComponent(subject)}`),
+  mcqStartQuiz: (dependentId, subject, chapterNo, chapter, count) =>
+    request('/mcq/quiz', { method: 'POST', body: { dependentId, subject, chapterNo, chapter, count } }),
+  mcqGradeQuiz: (dependentId, subject, chapterNo, answers) =>
+    request('/mcq/quiz/grade', { method: 'POST', body: { dependentId, subject, chapterNo, answers } }),
+  mcqAttempts: (dependentId) => request(`/mcq/attempts?dependentId=${dependentId}`),
 };
