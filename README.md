@@ -131,7 +131,7 @@ tokens) is provider-independent and does not change.
 
 | Question | Default used |
 | -------- | ------------ |
-| Grade range | **6–12** |
+| Grade range | **6–10** |
 | WhatsApp OTP provider | mock (swappable) |
 | One number = one role, ever | assumed yes (enforced) |
 | Edit/remove a dependent | remove is allowed and **frees a slot** |

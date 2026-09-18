@@ -112,8 +112,8 @@ export const config = {
   verificationTokenTtlHours: num('VERIFICATION_TOKEN_TTL_HOURS', 24),
   sessionTtlDays: num('SESSION_TTL_DAYS', 30),
 
-  // Grade list for the dependent dropdown (spec open question — default 6–12).
-  grades: (process.env.GRADES || '6,7,8,9,10,11,12')
+  // Grade list for the dependent dropdown (spec open question — default 6–10).
+  grades: (process.env.GRADES || '6,7,8,9,10')
     .split(',')
     .map((g) => g.trim())
     .filter(Boolean),
