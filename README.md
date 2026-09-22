@@ -13,9 +13,10 @@ Built from `Test Prep Sign-Up Flow.pdf` (Product Spec V1).
   everyday login — the password set at registration is the everyday credential.
 - **Free-mode caps** are enforced at the "add child / student" step, not at registration,
   so an account can start with zero dependents.
-- **MCQ practice**: from the dashboard, a parent/teacher picks a dependent, then subject
-  (+ optional chapter) and takes a multiple-choice practice quiz, graded instantly with a
-  per-question review. Attempt history is kept per dependent.
+- **MCQ practice**: from the dashboard, a parent/teacher picks a dependent, then narrows
+  down subject → chapter → section(s) → difficulty, previews how many questions match,
+  and takes a test with question-by-question navigation, instant grading, and a
+  mistakes-only review. Attempt history is kept per dependent.
 
 ## MCQ question bank
 
@@ -23,8 +24,9 @@ Seeded from `server/seed/cbse-mcq.csv` (CBSE grades 6–10 · Maths/Mathematics,
 English, Social — 29,557 raw rows) into a `mcq_question` table on first boot
 (`server/src/mcq/seed.js`, auto-runs whenever the table is empty — safe to wipe
 `server/data/` and restart). **Question, options, correct answer, and difficulty are
-imported byte-for-byte from the CSV — never rewritten, reordered, or filtered.** Two
-things are cleaned up, both about *which/how many rows*, not their content:
+imported byte-for-byte from the CSV — never rewritten, reordered, or filtered.** What
+import *does* clean up is all about *which rows exist / how they're labelled*, never
+their content:
 
 - `Maths`/`Mathematics` subject spelling normalized to `Mathematics` (grade 10 used
   "Maths" in the source file, every other grade used "Mathematics" — same subject).
@@ -38,19 +40,45 @@ things are cleaned up, both about *which/how many rows*, not their content:
   zero cases where duplicates disagreed on the correct answer. Quiz generation also
   over-fetches and drops any repeat by question text before returning results, so the
   rare cross-chapter duplicate (question legitimately listed under two chapters, ~18
-  cases) still can't produce the same question twice in one "All chapters" quiz.
+  cases) still can't produce the same question twice in one test.
+- **Chapter title spelling canonicalized** within one (grade, subject, chapter number) —
+  3 chapters had a spelling variant (e.g. "A Square and A Cube" vs "...a Cube", or a
+  curly vs straight apostrophe) that would otherwise split one chapter's questions across
+  two picker entries and make some of them unreachable by exact-title filtering.
+- **Sections grouped by section number**, not number+title — a handful of section titles
+  are truncated versions of a fuller title under the same number (a source artifact); the
+  picker shows one entry per number (using the longest title on record) and selecting it
+  still matches every row under that number regardless of which text variant it has.
 
 A grade+subject can have more than one chapter sharing the same chapter number (e.g. two
 different "Chapter 1"s from different books) — the chapter picker and quiz API key on
 **chapter number + chapter title together**, not the number alone.
 
-**Scoring**: 1 mark per correct answer, no partial or negative marking — a quiz's score
-is exactly the count of correctly-answered questions.
+**Scoring**: 1 mark per correct answer, no partial or negative marking — a test's score
+is exactly the count of correctly-answered questions; the setup and results screens say
+so explicitly.
 
-API: `GET /api/mcq/subjects`, `GET /api/mcq/chapters`, `POST /api/mcq/quiz` (build, no
-answers included), `POST /api/mcq/quiz/grade` (score + per-question correct/incorrect,
-records an attempt), `GET /api/mcq/attempts` (history) — all under `requireAuth` and
-scoped to a dependent the logged-in account owns.
+### Selection → test flow
+
+Modelled on a reference build (`questa-practice-test.babu-c-appunny.workers.dev`):
+
+1. **Subject** → **Chapter** (single choice, searchable — some subjects have 30+) →
+   **Section(s)** (multi-select; skipped automatically when a chapter has only one) →
+   **Difficulty** (Level 1–5, live count per level, zero-count levels disabled).
+2. **Test preview** — shows the total matching question count and **Begin Test** /
+   **Change Selection** (restarts from Subject).
+3. **Test** — a numbered palette jumps to any question; **Previous**/**Next**; **Submit
+   Test** works with any number answered — a confirmation shows the answered/unanswered
+   split first if any are unanswered (they score zero).
+4. **Results** — score, percentage, **Review Mistakes** (cycles only the wrong/unanswered
+   ones, each showing your answer vs. the correct one), **Practice Again** (same
+   selection, fresh random set), **Choose Another Section** (back to the section step).
+
+API: `GET /api/mcq/subjects`, `GET /api/mcq/chapters`, `GET /api/mcq/sections`,
+`GET /api/mcq/difficulty`, `POST /api/mcq/quiz` (build, no answers included),
+`POST /api/mcq/quiz/grade` (takes the full question-id list + a sparse answers map, so
+unanswered ones are gradeable; records an attempt), `GET /api/mcq/attempts` (history) —
+all under `requireAuth` and scoped to a dependent the logged-in account owns.
 
 ## Stack
 

@@ -59,9 +59,26 @@ export const api = {
   mcqSubjects: (dependentId) => request(`/mcq/subjects?dependentId=${dependentId}`),
   mcqChapters: (dependentId, subject) =>
     request(`/mcq/chapters?dependentId=${dependentId}&subject=${encodeURIComponent(subject)}`),
-  mcqStartQuiz: (dependentId, subject, chapterNo, chapter, count) =>
-    request('/mcq/quiz', { method: 'POST', body: { dependentId, subject, chapterNo, chapter, count } }),
-  mcqGradeQuiz: (dependentId, subject, chapterNo, answers) =>
-    request('/mcq/quiz/grade', { method: 'POST', body: { dependentId, subject, chapterNo, answers } }),
+  mcqSections: (dependentId, subject, chapterNo, chapter) =>
+    request(
+      `/mcq/sections?dependentId=${dependentId}&subject=${encodeURIComponent(subject)}` +
+        `&chapterNo=${encodeURIComponent(chapterNo)}&chapter=${encodeURIComponent(chapter)}`,
+    ),
+  mcqDifficulty: (dependentId, subject, chapterNo, chapter, sectionNumbers) =>
+    request(
+      `/mcq/difficulty?dependentId=${dependentId}&subject=${encodeURIComponent(subject)}` +
+        `&chapterNo=${encodeURIComponent(chapterNo)}&chapter=${encodeURIComponent(chapter)}` +
+        `&sectionNumbers=${encodeURIComponent((sectionNumbers || []).join(','))}`,
+    ),
+  mcqStartQuiz: (dependentId, subject, chapterNo, chapter, sectionNumbers, difficulty) =>
+    request('/mcq/quiz', {
+      method: 'POST',
+      body: { dependentId, subject, chapterNo, chapter, sectionNumbers, difficulty },
+    }),
+  mcqGradeQuiz: (dependentId, subject, chapterNo, questionIds, answers) =>
+    request('/mcq/quiz/grade', {
+      method: 'POST',
+      body: { dependentId, subject, chapterNo, questionIds, answers },
+    }),
   mcqAttempts: (dependentId) => request(`/mcq/attempts?dependentId=${dependentId}`),
 };

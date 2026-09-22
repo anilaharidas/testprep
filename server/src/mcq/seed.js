@@ -20,6 +20,18 @@ const orNull = (s) => (clean(s) ? clean(s) : null);
 // question/options/answer/difficulty are otherwise imported unchanged.
 const stripSourceTag = (s) => clean(s).replace(/\s*\[Source[^\]]*\]\s*$/i, '');
 
+// For matching only (never stored/shown): fold curly quotes to straight ones,
+// collapse whitespace, lowercase. Catches spelling variants of the same
+// chapter title, e.g. "A Square and A Cube" vs "A Square and a Cube", or a
+// curly vs straight apostrophe in "I'm Up and Down…".
+const normalizeForMatch = (s) =>
+  clean(s)
+    .normalize('NFKC')
+    .replace(/[‘’‛]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+
 function loadRows() {
   const raw = fs.readFileSync(CSV_PATH, 'utf8');
   return parse(raw, { columns: true, skip_empty_lines: true, bom: true, trim: true });
@@ -69,6 +81,24 @@ export function seedMcqIfEmpty() {
     };
   });
 
+  // A handful of chapters (3 out of 280 grade+subject+chapter combos) have a
+  // spelling variant under the same chapter_no — same chapter, e.g. "A Square
+  // and A Cube" vs "A Square and a Cube", or a curly vs straight apostrophe.
+  // Canonicalize to one spelling (the longer one) per (grade, subject,
+  // chapter_no) so a chapter title reliably matches every question in it —
+  // otherwise picking that chapter in the UI would silently miss some of it.
+  const canonicalChapter = new Map();
+  for (const r of allRecords) {
+    const key = [r.grade, r.subject, r.chapter_no, normalizeForMatch(r.chapter)].join('|');
+    const existing = canonicalChapter.get(key);
+    if (!existing || r.chapter.length > existing.length) canonicalChapter.set(key, r.chapter);
+  }
+  for (const r of allRecords) {
+    r.chapter = canonicalChapter.get(
+      [r.grade, r.subject, r.chapter_no, normalizeForMatch(r.chapter)].join('|'),
+    );
+  }
+
   // The source generator repeats the same question + the same 4 answer texts
   // (only the [Source ...] case id and which letter the correct one lands on
   // differ) — e.g. "A ratio compares:" appears 40 times under one grade 8
@@ -85,8 +115,8 @@ export function seedMcqIfEmpty() {
       .filter(Boolean)
       .slice()
       .sort()
-      .join('');
-    const key = [r.grade, r.subject, r.chapter_no, r.chapter, r.question, optionSet].join('');
+      .join('|');
+    const key = [r.grade, r.subject, r.chapter_no, r.chapter, r.question, optionSet].join('|');
     if (seen.has(key)) {
       dupes += 1;
       continue;

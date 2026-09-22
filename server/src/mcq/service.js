@@ -2,15 +2,25 @@ import { db } from '../db.js';
 import { ApiError } from '../util.js';
 import { getOwnedDependent } from '../accounts.js';
 
-const MIN_COUNT = 1;
-const MAX_COUNT = 30;
-const DEFAULT_COUNT = 10;
+const MAX_QUIZ_LEN = 150; // defensive cap; real per-section/difficulty counts run far lower
 
 function toOptions(row) {
   const options = { A: row.option_a, B: row.option_b };
   if (row.option_c) options.C = row.option_c;
   if (row.option_d) options.D = row.option_d;
   return options;
+}
+
+// "1.1", "1.2", "1.10", "10.5.1" — plain string sort gets "1.10" before "1.2".
+// Compare dot-separated numeric parts instead. "" / "0" (chapter intros) sort first.
+function naturalCompare(a, b) {
+  const pa = String(a || '0').split('.').map(Number);
+  const pb = String(b || '0').split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff) return diff;
+  }
+  return 0;
 }
 
 /** Subjects available for a grade, with how many questions each has. */
@@ -45,50 +55,98 @@ export function chaptersFor(grade, subject) {
 }
 
 /**
- * Pick a random set of questions for a dependent's grade, without answers.
- * chapterNo alone doesn't identify a chapter — the same grade+subject can have
- * more than one chapter numbered e.g. "1" (different books/terms), so a
- * chapter-scoped quiz must also match the chapter title.
+ * Sections within one specific chapter (chapter_no + chapter title, see
+ * buildQuiz). Grouped by section_number alone, not section_number+section —
+ * the source data has some rows with a truncated section title under the
+ * same number as rows with the full title (e.g. "3.1 The Dawn of
+ * Mathematics: The Human Need to" vs "...to Count"); within one chapter a
+ * section_number is one real syllabus section regardless of which text
+ * variant a given row got, so grouping just by number keeps the picker from
+ * showing near-duplicate entries. The label shown is the longest (most
+ * complete) title on record for that number; every row under it is still
+ * included when the section is selected — nothing is dropped.
  */
-export function buildQuiz({ account, dependentId, subject, chapterNo, chapter, count }) {
+export function sectionsFor({ grade, subject, chapterNo, chapter }) {
+  const rows = db
+    .prepare(`
+      SELECT section_number AS sectionNumber, section, count(*) AS count
+      FROM mcq_question
+      WHERE grade = ? AND subject = ? AND chapter_no = ? AND chapter = ?
+      GROUP BY section_number, section
+    `)
+    .all(grade, subject, chapterNo, chapter);
+
+  const byNumber = new Map();
+  for (const r of rows) {
+    const key = r.sectionNumber ?? '';
+    const existing = byNumber.get(key);
+    if (!existing) {
+      byNumber.set(key, { sectionNumber: r.sectionNumber, section: r.section, count: r.count });
+    } else {
+      existing.count += r.count;
+      if ((r.section?.length || 0) > (existing.section?.length || 0)) existing.section = r.section;
+    }
+  }
+  return [...byNumber.values()].sort((a, b) => naturalCompare(a.sectionNumber, b.sectionNumber));
+}
+
+/** Question count per difficulty level (1–5) for a chapter, optionally narrowed to sections. */
+export function difficultyBreakdown({ grade, subject, chapterNo, chapter, sectionNumbers }) {
+  const params = [grade, subject, chapterNo, chapter];
+  let where = 'grade = ? AND subject = ? AND chapter_no = ? AND chapter = ?';
+  if (sectionNumbers?.length) {
+    where += ` AND section_number IN (${sectionNumbers.map(() => '?').join(',')})`;
+    params.push(...sectionNumbers);
+  }
+  const rows = db
+    .prepare(`SELECT difficulty AS level, count(*) AS count FROM mcq_question WHERE ${where} GROUP BY difficulty`)
+    .all(...params);
+  const byLevel = new Map(rows.map((r) => [r.level, r.count]));
+  return [1, 2, 3, 4, 5].map((level) => ({ level, count: byLevel.get(level) || 0 }));
+}
+
+/**
+ * Every question matching a subject + chapter + (optional) sections + one
+ * difficulty level, deduped by question text, in random order. chapterNo
+ * alone doesn't identify a chapter — the same grade+subject can have more
+ * than one chapter numbered e.g. "1" (different books/terms) — so a chapter
+ * is always chapterNo + chapter title together.
+ */
+export function buildQuiz({ account, dependentId, subject, chapterNo, chapter, sectionNumbers, difficulty }) {
   const dependent = getOwnedDependent(account, dependentId);
   if (!subject) throw new ApiError(400, 'bad_subject', 'Choose a subject.');
+  if (!chapterNo || !chapter) throw new ApiError(400, 'bad_chapter', 'Choose a chapter.');
+  const level = Number(difficulty);
+  if (!(level >= 1 && level <= 5)) throw new ApiError(400, 'bad_difficulty', 'Choose a difficulty level.');
 
-  const n = Math.min(Math.max(Number(count) || DEFAULT_COUNT, MIN_COUNT), MAX_COUNT);
-  const params = [dependent.grade, subject];
-  let where = 'grade = ? AND subject = ?';
-  if (chapterNo && chapter) {
-    where += ' AND chapter_no = ? AND chapter = ?';
-    params.push(chapterNo, chapter);
-  } else if (chapterNo) {
-    where += ' AND chapter_no = ?';
-    params.push(chapterNo);
+  const params = [dependent.grade, subject, chapterNo, chapter, level];
+  let where = 'grade = ? AND subject = ? AND chapter_no = ? AND chapter = ? AND difficulty = ?';
+  if (sectionNumbers?.length) {
+    where += ` AND section_number IN (${sectionNumbers.map(() => '?').join(',')})`;
+    params.push(...sectionNumbers);
   }
 
-  // Import-time dedup collapses repeats within a chapter, but the same question
-  // can (rarely) live in two different chapters — invisible to that dedup, and
-  // "All chapters" quizzes can draw both. Over-fetch and drop duplicate question
-  // text here so no quiz ever shows the same question twice, however it arises.
-  const candidates = db
+  const rows = db
     .prepare(`
       SELECT id, chapter, section, question, option_a, option_b, option_c, option_d, difficulty
       FROM mcq_question
       WHERE ${where}
       ORDER BY RANDOM()
-      LIMIT ?
     `)
-    .all(...params, n * 3);
+    .all(...params);
 
-  const seenQuestions = new Set();
-  const rows = [];
-  for (const r of candidates) {
-    if (rows.length >= n) break;
-    if (seenQuestions.has(r.question)) continue;
-    seenQuestions.add(r.question);
-    rows.push(r);
+  // Defensive: chapter is fixed here so import-time per-chapter dedup already
+  // guarantees unique question text, but a stray repeat should never surface.
+  const seen = new Set();
+  const deduped = [];
+  for (const r of rows) {
+    if (seen.has(r.question)) continue;
+    seen.add(r.question);
+    deduped.push(r);
+    if (deduped.length >= MAX_QUIZ_LEN) break;
   }
 
-  if (rows.length === 0) {
+  if (deduped.length === 0) {
     throw new ApiError(404, 'no_questions', 'No questions available for this selection.');
   }
 
@@ -97,9 +155,11 @@ export function buildQuiz({ account, dependentId, subject, chapterNo, chapter, c
     dependentName: dependent.name,
     grade: dependent.grade,
     subject,
-    chapterNo: chapterNo || null,
-    chapter: chapter || null,
-    questions: rows.map((r) => ({
+    chapterNo,
+    chapter,
+    sectionNumbers: sectionNumbers || [],
+    difficulty: level,
+    questions: deduped.map((r) => ({
       id: r.id,
       question: r.question,
       chapter: r.chapter,
@@ -110,13 +170,18 @@ export function buildQuiz({ account, dependentId, subject, chapterNo, chapter, c
   };
 }
 
-/** Grade a submitted quiz, record the attempt, and return per-question results. */
-export function gradeQuiz({ account, dependentId, subject, chapterNo, answers }) {
+/**
+ * Grade a submitted quiz and record the attempt. `questionIds` is the full
+ * set of questions the quiz was built from (including ones left unanswered);
+ * `answers` is a sparse {id: letter} map for whichever were answered.
+ * Unanswered questions score 0, same as a wrong answer, and are reported with
+ * their own 'unanswered' status so the review screen can tell the two apart.
+ */
+export function gradeQuiz({ account, dependentId, subject, chapterNo, questionIds, answers }) {
   const dependent = getOwnedDependent(account, dependentId);
-  const entries = Object.entries(answers || {}).filter(([id]) => Number.isInteger(Number(id)));
-  if (entries.length === 0) throw new ApiError(400, 'no_answers', 'No answers submitted.');
+  const ids = (questionIds || []).map(Number).filter((n) => Number.isInteger(n));
+  if (ids.length === 0) throw new ApiError(400, 'no_questions', 'No questions to grade.');
 
-  const ids = entries.map(([id]) => Number(id));
   const placeholders = ids.map(() => '?').join(',');
   const rows = db
     .prepare(`
@@ -127,12 +192,13 @@ export function gradeQuiz({ account, dependentId, subject, chapterNo, answers })
   const byId = new Map(rows.map((r) => [r.id, r]));
 
   let score = 0;
-  const results = entries
-    .map(([idStr, rawSelected]) => {
-      const row = byId.get(Number(idStr));
+  const results = ids
+    .map((id) => {
+      const row = byId.get(id);
       if (!row) return null;
-      const selected = String(rawSelected || '').toUpperCase() || null;
-      const isCorrect = selected === row.correct_option;
+      const raw = answers ? answers[id] ?? answers[String(id)] : null;
+      const selected = raw ? String(raw).toUpperCase() : null;
+      const isCorrect = selected != null && selected === row.correct_option;
       if (isCorrect) score += 1;
       return {
         id: row.id,
@@ -141,7 +207,7 @@ export function gradeQuiz({ account, dependentId, subject, chapterNo, answers })
         options: toOptions(row),
         selected,
         correct: row.correct_option,
-        isCorrect,
+        status: isCorrect ? 'correct' : selected ? 'incorrect' : 'unanswered',
       };
     })
     .filter(Boolean);
