@@ -82,13 +82,13 @@ all under `requireAuth` and scoped to a dependent the logged-in account owns.
 
 ## Stack
 
-| Layer    | Tech                                            |
-| -------- | ----------------------------------------------- |
-| Frontend | React + Vite                                    |
-| Backend  | Node + Express                                  |
-| Storage  | SQLite (`better-sqlite3`), file at `server/data/app.db` |
-| Auth     | bcrypt password hashes + httpOnly session cookie |
-| OTP      | Pluggable provider — `mock` / `manual` / `whatsapp` |
+| Layer    | Local dev (`server/src/`)                       | Deployed (`server/worker/`)          |
+| -------- | ------------------------------------------------ | ------------------------------------- |
+| Frontend | React + Vite                                      | same, served as Cloudflare Pages static assets |
+| Backend  | Node + Express                                    | Hono, as a Cloudflare Pages Function  |
+| Storage  | SQLite (`better-sqlite3`), file at `server/data/app.db` | Cloudflare D1                   |
+| Auth     | bcryptjs password hashes + httpOnly session cookie | same                                 |
+| OTP      | Pluggable provider — `mock` / `manual` / `whatsapp` | same                                |
 
 ## Run
 
@@ -99,6 +99,63 @@ npm run dev
 
 - Client: http://localhost:5173
 - API: http://localhost:4000 (proxied from the client at `/api`)
+
+This runs the original Express + better-sqlite3 server (`server/src/`), good for
+day-to-day UI work. It does not touch Cloudflare or D1 at all.
+
+## Deploy (Cloudflare Pages + Functions + D1)
+
+Live hosting runs on **Cloudflare Pages**: the Vite build (`client/dist`) served as
+static assets, plus a Pages Function (`functions/api/[[path]].js`, a Hono app in
+`server/worker/`) handling every `/api/*` route, backed by **D1** (Cloudflare's
+managed SQLite) instead of a local database file. Express and better-sqlite3 can't
+run on Cloudflare's Workers runtime (no native addons, no filesystem) — `server/src/`
+was ported to `server/worker/` for this, table-for-table and route-for-route
+compatible with the client.
+
+### First-time setup
+
+```bash
+npx wrangler login                    # one-time browser auth
+npx wrangler d1 create testprep-db    # copy the printed database_id into wrangler.toml
+npx wrangler d1 execute testprep-db --remote --file=server/migrations/0001_init.sql
+
+npm run cf:build-seed                 # CSV -> server/seed/sql/*.sql (gitignored, ~55 files)
+for f in server/seed/sql/*.sql; do
+  npx wrangler d1 execute testprep-db --remote --file="$f"
+done
+
+npx wrangler pages project create testprep --production-branch=main
+```
+
+Then set the same variables `server/.env.example` documents as **Pages environment
+variables/secrets** (dashboard → the project → Settings → Environment variables, or
+`npx wrangler pages secret put NAME --project-name=testprep`) — `CLIENT_ORIGIN` (the
+Pages URL), `OTP_PROVIDER`, `ADMIN_PASSWORD`, `ADMIN_PANEL_SLUG` (must be set
+explicitly — no filesystem to auto-generate one), and the Telegram/WhatsApp vars if
+used. `wrangler pages secret put` only writes the **production** environment.
+
+### Deploying
+
+```bash
+npm run build && npx wrangler pages deploy client/dist --project-name=testprep --branch=main
+```
+
+For auto-deploy on every push, connect the GitHub repo to the Pages project from the
+Cloudflare dashboard (Pages project → Settings → Builds & deployments) — build command
+`npm run build`, output directory `client/dist`, build directory `/`. Attach a custom
+domain from the same dashboard (Custom domains) once you're happy with it; that's what
+replaces the old ephemeral `trycloudflare.com` tunnel URL with a stable one.
+
+### Local Cloudflare dev
+
+```bash
+npm run cf:dev   # builds the client, then wrangler pages dev against local D1
+```
+
+Copy `.dev.vars.example` to `.dev.vars` (gitignored) first. This runs the real Hono/D1
+worker locally via Miniflare — use it to test API changes before deploying, separately
+from the plain `npm run dev` Express workflow above.
 
 ## OTP delivery modes (`OTP_PROVIDER`)
 
