@@ -7,6 +7,7 @@ import Login from './screens/Login.jsx';
 import Forgot from './screens/Forgot.jsx';
 import Dashboard from './screens/Dashboard.jsx';
 import Quiz from './screens/Quiz.jsx';
+import SharedQuiz from './screens/SharedQuiz.jsx';
 import OperatorPanel from './screens/OperatorPanel.jsx';
 
 export default function App() {
@@ -14,6 +15,8 @@ export default function App() {
     <Routes>
       {/* Operator panel — standalone, no user account, no app shell */}
       <Route path="/panel/:slug" element={<OperatorPanel />} />
+      {/* Shareable practice link — standalone, no login required */}
+      <Route path="/share/:token" element={<SharedQuiz />} />
       <Route path="*" element={<MainApp />} />
     </Routes>
   );

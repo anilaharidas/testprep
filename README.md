@@ -17,14 +17,20 @@ Built from `Test Prep Sign-Up Flow.pdf` (Product Spec V1).
   down subject → chapter → section(s) → difficulty, previews how many questions match,
   and takes a test with question-by-question navigation, instant grading, and a
   mistakes-only review. Attempt history is kept per dependent.
+- **Shareable practice links**: a parent/teacher can copy a link per dependent
+  (`/share/<token>`) and send it however they like (WhatsApp, SMS, email, ...) — the
+  student opens it directly and gets the same subject → ... → results flow with no
+  login required. One standing link per dependent; attempts still show up in the
+  parent/teacher's own attempt history.
 
 ## MCQ question bank
 
 Seeded from `server/seed/cbse-mcq.csv` (CBSE grades 6–10 · Maths/Mathematics, Science,
-English, Social — 29,557 raw rows) into a `mcq_question` table on first boot
-(`server/src/mcq/seed.js`, auto-runs whenever the table is empty — safe to wipe
-`server/data/` and restart). **Question, options, correct answer, and difficulty are
-imported byte-for-byte from the CSV — never rewritten, reordered, or filtered.** What
+English, Social — 29,557 raw rows) into D1's `mcq_question` table via a one-time
+offline import (`npm run seed`, see Deploy below — D1 has no request-time filesystem
+access, so this can't auto-run at boot the way a local SQLite file could).
+**Question, options, correct answer, and difficulty are imported byte-for-byte from
+the CSV — never rewritten, reordered, or filtered.** What
 import *does* clean up is all about *which rows exist / how they're labelled*, never
 their content:
 
@@ -80,38 +86,58 @@ API: `GET /api/mcq/subjects`, `GET /api/mcq/chapters`, `GET /api/mcq/sections`,
 unanswered ones are gradeable; records an attempt), `GET /api/mcq/attempts` (history) —
 all under `requireAuth` and scoped to a dependent the logged-in account owns.
 
+### Shareable practice links
+
+`GET /api/mcq/share-link?dependentId=` (get-or-create) and
+`POST /api/mcq/share-link/regenerate` (rotates the token, invalidating the old link)
+are `requireAuth`'d, same as the routes above. The public side is a parallel,
+unauthenticated route tree at `/api/share/:token/...` (`/`, `/subjects`, `/chapters`,
+`/sections`, `/difficulty`, `POST /quiz`, `POST /quiz/grade`, `/attempts`) — the token
+itself is the authorization, resolved server-side to exactly one dependent
+(`server/worker/mcq/shareLinks.js`); nothing on that side can reach any other
+dependent or the owning account's details. One standing link per dependent
+(`dependent_share_link` table, `UNIQUE` on `dependent_id`) rather than one-shot or
+time-limited, so a parent/teacher can keep re-sharing it for ongoing practice.
+
 ## Stack
 
-| Layer    | Local dev (`server/src/`)                       | Deployed (`server/worker/`)          |
-| -------- | ------------------------------------------------ | ------------------------------------- |
-| Frontend | React + Vite                                      | same, served as Cloudflare Pages static assets |
-| Backend  | Node + Express                                    | Hono, as a Cloudflare Pages Function  |
-| Storage  | SQLite (`better-sqlite3`), file at `server/data/app.db` | Cloudflare D1                   |
-| Auth     | bcryptjs password hashes + httpOnly session cookie | same                                 |
-| OTP      | Pluggable provider — `mock` / `manual` / `whatsapp` | same                                |
+| Layer    | Tech                                                        |
+| -------- | ------------------------------------------------------------ |
+| Frontend | React + Vite, served as Cloudflare Pages static assets       |
+| Backend  | Hono, running as a Cloudflare Pages Function (`functions/api/[[path]].js`, app in `server/worker/`) |
+| Storage  | Cloudflare D1                                                 |
+| Auth     | bcryptjs password hashes + httpOnly session cookie             |
+| OTP      | Pluggable provider — `mock` / `manual` / `whatsapp`            |
+
+Cloudflare's Workers runtime has no native addons and no filesystem, so this is a
+genuine Workers-native backend (async D1 calls, no Express) rather than a Node
+server — there's exactly one backend, used both for local dev and for what's
+actually deployed.
 
 ## Run
 
 ```bash
 npm run install:all
+cp .dev.vars.example .dev.vars   # fill in at least OTP_PROVIDER (mock is fine to start)
 npm run dev
 ```
 
-- Client: http://localhost:5173
-- API: http://localhost:4000 (proxied from the client at `/api`)
+- Client: http://localhost:5173 (Vite, hot-reloading)
+- API: http://localhost:8788 (`wrangler pages dev` running the real Hono/D1 worker
+  locally via Miniflare, proxied from the client at `/api`)
 
-This runs the original Express + better-sqlite3 server (`server/src/`), good for
-day-to-day UI work. It does not touch Cloudflare or D1 at all.
+First time only, apply the schema to the local D1 database and seed the question
+bank (see Deploy below for the same commands with `--remote` for production):
+
+```bash
+npx wrangler d1 execute testprep-db --local --file=server/migrations/0001_init.sql
+npm run seed   # CSV -> server/seed/sql/*.sql (gitignored)
+for f in server/seed/sql/*.sql; do
+  npx wrangler d1 execute testprep-db --local --file="$f"
+done
+```
 
 ## Deploy (Cloudflare Pages + Functions + D1)
-
-Live hosting runs on **Cloudflare Pages**: the Vite build (`client/dist`) served as
-static assets, plus a Pages Function (`functions/api/[[path]].js`, a Hono app in
-`server/worker/`) handling every `/api/*` route, backed by **D1** (Cloudflare's
-managed SQLite) instead of a local database file. Express and better-sqlite3 can't
-run on Cloudflare's Workers runtime (no native addons, no filesystem) — `server/src/`
-was ported to `server/worker/` for this, table-for-table and route-for-route
-compatible with the client.
 
 ### First-time setup
 
@@ -120,7 +146,7 @@ npx wrangler login                    # one-time browser auth
 npx wrangler d1 create testprep-db    # copy the printed database_id into wrangler.toml
 npx wrangler d1 execute testprep-db --remote --file=server/migrations/0001_init.sql
 
-npm run cf:build-seed                 # CSV -> server/seed/sql/*.sql (gitignored, ~55 files)
+npm run seed                          # CSV -> server/seed/sql/*.sql (gitignored, ~55 files)
 for f in server/seed/sql/*.sql; do
   npx wrangler d1 execute testprep-db --remote --file="$f"
 done
@@ -128,7 +154,7 @@ done
 npx wrangler pages project create testprep --production-branch=main
 ```
 
-Then set the same variables `server/.env.example` documents as **Pages environment
+Then set the same variables `.dev.vars.example` documents as **Pages environment
 variables/secrets** (dashboard → the project → Settings → Environment variables, or
 `npx wrangler pages secret put NAME --project-name=testprep`) — `CLIENT_ORIGIN` (the
 Pages URL), `OTP_PROVIDER`, `ADMIN_PASSWORD`, `ADMIN_PANEL_SLUG` (must be set
@@ -137,25 +163,13 @@ used. `wrangler pages secret put` only writes the **production** environment.
 
 ### Deploying
 
-```bash
-npm run build && npx wrangler pages deploy client/dist --project-name=testprep --branch=main
-```
-
-For auto-deploy on every push, connect the GitHub repo to the Pages project from the
-Cloudflare dashboard (Pages project → Settings → Builds & deployments) — build command
-`npm run build`, output directory `client/dist`, build directory `/`. Attach a custom
-domain from the same dashboard (Custom domains) once you're happy with it; that's what
-replaces the old ephemeral `trycloudflare.com` tunnel URL with a stable one.
-
-### Local Cloudflare dev
-
-```bash
-npm run cf:dev   # builds the client, then wrangler pages dev against local D1
-```
-
-Copy `.dev.vars.example` to `.dev.vars` (gitignored) first. This runs the real Hono/D1
-worker locally via Miniflare — use it to test API changes before deploying, separately
-from the plain `npm run dev` Express workflow above.
+Push to `main` — the Pages project is connected to this GitHub repo (Settings →
+Builds & deployments) and auto-deploys on every push, build command
+`npm run install:all && npm run build` (installs `client/`'s and `server/`'s own
+dependencies too, not just the root's), output directory `client/dist`. To deploy
+by hand instead: `npm run deploy`. Attach a custom domain from the dashboard
+(Custom domains) whenever you're ready — that's what replaces the default
+`*.pages.dev` URL with a stable one of your own.
 
 ## OTP delivery modes (`OTP_PROVIDER`)
 
@@ -167,12 +181,12 @@ from the plain `npm run dev` Express workflow above.
 
 ### `manual` mode — operator relay
 
-1. `server/.env`:
+1. `.dev.vars` locally / Pages environment variables in production:
    ```
    OTP_PROVIDER=manual
    OTP_MANUAL_OPERATOR_NUMBER=917510563991   # digits only, incl. country code
    ADMIN_PASSWORD=<something strong>
-   ADMIN_PANEL_SLUG=<random>                 # blank = auto-generated, printed on boot
+   ADMIN_PANEL_SLUG=<something unguessable>  # must be set explicitly — no filesystem to auto-generate one
    ```
 2. Code is **deterministic**, varied by purpose and resend count:
    `OTP = (N × 7919 + 104729 + 2749·[reset] + 3517·seq) mod 10000`
@@ -192,7 +206,7 @@ from the plain `npm run dev` Express workflow above.
 
 #### Telegram push (so the operator isn't tied to the panel)
 
-Set in `server/.env`:
+Set in `.dev.vars` locally / Pages environment variables in production:
 
 ```
 TELEGRAM_BOT_TOKEN=...     # @BotFather -> /newbot
@@ -207,7 +221,7 @@ a Telegram outage never blocks sign-up.
 - Test it: `cd server && node scripts/tg-test.js`
 
 > Telegram's servers see the number and code. If that's a concern, trim the message in
-> `server/src/notify/telegram.js` to just "new request — open panel".
+> `server/worker/notify/telegram.js` to just "new request — open panel".
 
 > Security note: because the code is a fixed function of the phone number, anyone who
 > knows the formula can compute any number's code. The practical control is that the
@@ -217,15 +231,15 @@ a Telegram outage never blocks sign-up.
 
 ### `whatsapp` mode — going live with Cloud API
 
-The real provider is implemented at `server/src/otp/providers/whatsapp.js`. It sends the
-code through a pre-approved **AUTHENTICATION-category message template** in the client's
-WhatsApp Business Account (WhatsApp does not allow free-form OTP text).
+The real provider is implemented at `server/worker/otp/providers/whatsapp.js`. It sends
+the code through a pre-approved **AUTHENTICATION-category message template** in the
+client's WhatsApp Business Account (WhatsApp does not allow free-form OTP text).
 
 1. Provision Cloud API **in the client's Meta Business Portfolio** (see
    `docs/whatsapp-cloud-api-setup.md`).
 2. Create an authentication template (e.g. `otp_verification`) with a COPY_CODE or
    ONE_TAP button.
-3. Fill `server/.env`:
+3. Fill `.dev.vars` locally / Pages environment variables in production:
    ```
    OTP_PROVIDER=whatsapp
    WHATSAPP_PHONE_NUMBER_ID=…

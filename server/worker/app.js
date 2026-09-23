@@ -8,6 +8,7 @@ import { sweep } from './maintenance.js';
 import { sendOtp, verifyOtp } from './otp/service.js';
 import { adminApp } from './admin.js';
 import { mcqApp } from './mcq/routes.js';
+import { shareApp } from './mcq/shareRoutes.js';
 import { requireAuth, SESSION_COOKIE } from './middleware.js';
 import {
   register,
@@ -98,6 +99,7 @@ export function createApp() {
 
   app.route('/api/admin', adminApp);
   app.route('/api/mcq', mcqApp);
+  app.route('/api/share/:token', shareApp);
 
   // ---- OTP --------------------------------------------------------------
 

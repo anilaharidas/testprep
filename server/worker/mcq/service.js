@@ -1,5 +1,4 @@
 import { ApiError } from '../util.js';
-import { getOwnedDependent } from '../accounts.js';
 
 const MAX_QUIZ_LEN = 150; // defensive cap; real per-section/difficulty counts run far lower
 
@@ -107,8 +106,7 @@ export async function difficultyBreakdown(db, { grade, subject, chapterNo, chapt
  * than one chapter numbered e.g. "1" (different books/terms) — so a chapter
  * is always chapterNo + chapter title together.
  */
-export async function buildQuiz(db, { account, dependentId, subject, chapterNo, chapter, sectionNumbers, difficulty }) {
-  const dependent = await getOwnedDependent(db, account, dependentId);
+export async function buildQuiz(db, { dependent, subject, chapterNo, chapter, sectionNumbers, difficulty }) {
   if (!subject) throw new ApiError(400, 'bad_subject', 'Choose a subject.');
   if (!chapterNo || !chapter) throw new ApiError(400, 'bad_chapter', 'Choose a chapter.');
   const level = Number(difficulty);
@@ -172,8 +170,7 @@ export async function buildQuiz(db, { account, dependentId, subject, chapterNo, 
  * Unanswered questions score 0, same as a wrong answer, and are reported with
  * their own 'unanswered' status so the review screen can tell the two apart.
  */
-export async function gradeQuiz(db, { account, dependentId, subject, chapterNo, questionIds, answers }) {
-  const dependent = await getOwnedDependent(db, account, dependentId);
+export async function gradeQuiz(db, { dependent, accountId, subject, chapterNo, questionIds, answers }) {
   const ids = (questionIds || []).map(Number).filter((n) => Number.isInteger(n));
   if (ids.length === 0) throw new ApiError(400, 'no_questions', 'No questions to grade.');
 
@@ -212,14 +209,13 @@ export async function gradeQuiz(db, { account, dependentId, subject, chapterNo, 
       `INSERT INTO mcq_attempt (account_id, dependent_id, grade, subject, chapter_no, score, total)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(account.id, dependent.id, dependent.grade, subject, chapterNo || null, score, results.length);
+    .run(accountId, dependent.id, dependent.grade, subject, chapterNo || null, score, results.length);
 
   return { score, total: results.length, results };
 }
 
 /** Recent practice history for a dependent. */
-export async function attemptsFor(db, account, dependentId) {
-  const dependent = await getOwnedDependent(db, account, dependentId);
+export async function attemptsFor(db, dependent) {
   return db
     .prepare(
       `SELECT id, subject, chapter_no AS chapterNo, score, total, created_at AS createdAt

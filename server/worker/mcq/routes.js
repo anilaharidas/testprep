@@ -10,6 +10,7 @@ import {
   gradeQuiz,
   attemptsFor,
 } from './service.js';
+import { getOrCreateShareToken, regenerateShareToken } from './shareLinks.js';
 
 export const mcqApp = new Hono();
 mcqApp.use('*', requireAuth());
@@ -64,15 +65,8 @@ mcqApp.post('/quiz', async (c) => {
   const account = c.get('account');
   const body = await c.req.json().catch(() => ({}));
   const { dependentId, subject, chapterNo, chapter, sectionNumbers, difficulty } = body || {};
-  const quiz = await buildQuiz(db, {
-    account,
-    dependentId: Number(dependentId),
-    subject,
-    chapterNo,
-    chapter,
-    sectionNumbers,
-    difficulty,
-  });
+  const dependent = await getOwnedDependent(db, account, Number(dependentId));
+  const quiz = await buildQuiz(db, { dependent, subject, chapterNo, chapter, sectionNumbers, difficulty });
   return c.json({ ok: true, ...quiz });
 });
 
@@ -81,9 +75,10 @@ mcqApp.post('/quiz/grade', async (c) => {
   const account = c.get('account');
   const body = await c.req.json().catch(() => ({}));
   const { dependentId, subject, chapterNo, questionIds, answers } = body || {};
+  const dependent = await getOwnedDependent(db, account, Number(dependentId));
   const result = await gradeQuiz(db, {
-    account,
-    dependentId: Number(dependentId),
+    dependent,
+    accountId: account.id,
     subject,
     chapterNo,
     questionIds,
@@ -94,6 +89,24 @@ mcqApp.post('/quiz/grade', async (c) => {
 
 mcqApp.get('/attempts', async (c) => {
   const { db } = c.get('ctx');
-  const attempts = await attemptsFor(db, c.get('account'), Number(c.req.query('dependentId')));
+  const dependent = await getOwnedDependent(db, c.get('account'), Number(c.req.query('dependentId')));
+  const attempts = await attemptsFor(db, dependent);
   return c.json({ ok: true, attempts });
+});
+
+// ---- shareable practice link (teacher/parent side) -----------------------
+
+mcqApp.get('/share-link', async (c) => {
+  const { db } = c.get('ctx');
+  const dependent = await getOwnedDependent(db, c.get('account'), Number(c.req.query('dependentId')));
+  const token = await getOrCreateShareToken(db, dependent.id);
+  return c.json({ ok: true, token });
+});
+
+mcqApp.post('/share-link/regenerate', async (c) => {
+  const { db } = c.get('ctx');
+  const body = await c.req.json().catch(() => ({}));
+  const dependent = await getOwnedDependent(db, c.get('account'), Number(body?.dependentId));
+  const token = await regenerateShareToken(db, dependent.id);
+  return c.json({ ok: true, token });
 });

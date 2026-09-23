@@ -10,7 +10,7 @@ export default defineConfig({
     allowedHosts: ['.trycloudflare.com', '.cfargotunnel.com', 'localhost', '127.0.0.1'],
     proxy: {
       '/api': {
-        target: 'http://localhost:4000',
+        target: 'http://localhost:8788',
         changeOrigin: true,
       },
     },

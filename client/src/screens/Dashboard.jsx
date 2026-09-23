@@ -11,6 +11,7 @@ export default function Dashboard() {
   const cfg = useAppConfig();
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
 
   if (!account) return null;
 
@@ -29,6 +30,19 @@ export default function Dashboard() {
       setAccount(res.account);
     } catch (err) {
       setError(err.message || 'Could not remove.');
+    }
+  }
+
+  async function copyLink(id) {
+    setError(null);
+    try {
+      const { token } = await api.mcqShareLink(id);
+      const url = `${window.location.origin}/share/${token}`;
+      await navigator.clipboard.writeText(url);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 1500);
+    } catch (err) {
+      setError(err.message || 'Could not copy the link.');
     }
   }
 
@@ -75,6 +89,9 @@ export default function Dashboard() {
                 <Link className="btn-link" to={`/quiz/${d.id}`}>
                   Practice
                 </Link>
+                <button className="btn-link" onClick={() => copyLink(d.id)}>
+                  {copiedId === d.id ? 'Copied!' : 'Copy link'}
+                </button>
                 <button className="btn-link danger" onClick={() => remove(d.id)}>
                   Remove
                 </button>

@@ -81,4 +81,39 @@ export const api = {
       body: { dependentId, subject, chapterNo, questionIds, answers },
     }),
   mcqAttempts: (dependentId) => request(`/mcq/attempts?dependentId=${dependentId}`),
+
+  // Shareable practice link (teacher/parent side)
+  mcqShareLink: (dependentId) => request(`/mcq/share-link?dependentId=${dependentId}`),
+  mcqShareLinkRegenerate: (dependentId) =>
+    request('/mcq/share-link/regenerate', { method: 'POST', body: { dependentId } }),
+
+  // Public practice link (student side, no login) — same shapes as the mcqXxx
+  // methods above, minus dependentId (the token in the URL identifies the
+  // dependent instead).
+  shareInfo: (token) => request(`/share/${token}`),
+  shareSubjects: (token) => request(`/share/${token}/subjects`),
+  shareChapters: (token, subject) =>
+    request(`/share/${token}/chapters?subject=${encodeURIComponent(subject)}`),
+  shareSections: (token, subject, chapterNo, chapter) =>
+    request(
+      `/share/${token}/sections?subject=${encodeURIComponent(subject)}` +
+        `&chapterNo=${encodeURIComponent(chapterNo)}&chapter=${encodeURIComponent(chapter)}`,
+    ),
+  shareDifficulty: (token, subject, chapterNo, chapter, sectionNumbers) =>
+    request(
+      `/share/${token}/difficulty?subject=${encodeURIComponent(subject)}` +
+        `&chapterNo=${encodeURIComponent(chapterNo)}&chapter=${encodeURIComponent(chapter)}` +
+        `&sectionNumbers=${encodeURIComponent((sectionNumbers || []).join(','))}`,
+    ),
+  shareStartQuiz: (token, subject, chapterNo, chapter, sectionNumbers, difficulty) =>
+    request(`/share/${token}/quiz`, {
+      method: 'POST',
+      body: { subject, chapterNo, chapter, sectionNumbers, difficulty },
+    }),
+  shareGradeQuiz: (token, subject, chapterNo, questionIds, answers) =>
+    request(`/share/${token}/quiz/grade`, {
+      method: 'POST',
+      body: { subject, chapterNo, questionIds, answers },
+    }),
+  shareAttempts: (token) => request(`/share/${token}/attempts`),
 };
