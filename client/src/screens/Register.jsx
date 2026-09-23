@@ -34,6 +34,10 @@ export default function Register() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [numberTaken, setNumberTaken] = useState(false);
+  // Manual mode only: number checked and confirmed available, waiting on the
+  // user to tap through to WhatsApp (a separate click, so it's never opened
+  // for a number that turns out to already have an account).
+  const [awaitingWhatsapp, setAwaitingWhatsapp] = useState(false);
 
   if (!cfg) {
     return (
@@ -46,13 +50,11 @@ export default function Register() {
   const roleMeta = cfg.roles.find((r) => r.role === role);
   const number = fullNumber(country, local);
 
-  async function sendOtp(e) {
+  async function checkAndSend(e) {
     e.preventDefault();
-    // Open WhatsApp synchronously, inside the click gesture — doing it after the
-    // await gets the popup blocked on mobile.
-    if (cfg.otpMode === 'manual' && cfg.manualWhatsappUrl) {
-      window.open(cfg.manualWhatsappUrl, '_blank', 'noopener');
-    }
+    // No WhatsApp popup here — we don't yet know the number is free. Only once
+    // the server confirms that (manual mode) do we show a button that opens
+    // WhatsApp, as its own click gesture.
     setBusy(true);
     setError(null);
     setNumberTaken(false);
@@ -61,7 +63,11 @@ export default function Register() {
       setSendMeta(res);
       setVerifiedNumber(res.whatsappNumber);
       if (res.whatsappUrl) setManualUrl(res.whatsappUrl);
-      setStep(2);
+      if (cfg.otpMode === 'manual') {
+        setAwaitingWhatsapp(true);
+      } else {
+        setStep(2);
+      }
     } catch (err) {
       if (err instanceof ApiError && err.code === 'number_taken') {
         setNumberTaken(true);
@@ -71,6 +77,12 @@ export default function Register() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function openWhatsAppAndContinue() {
+    const url = manualUrl || cfg.manualWhatsappUrl;
+    if (url) window.open(url, '_blank', 'noopener');
+    setStep(2);
   }
 
   async function submitProfile(e) {
@@ -149,19 +161,23 @@ export default function Register() {
       )}
 
       {/* Step 1 — phone */}
-      {step === 1 && (
-        <form onSubmit={sendOtp}>
+      {step === 1 && !awaitingWhatsapp && (
+        <form onSubmit={checkAndSend}>
           <h1>Your WhatsApp number</h1>
           <p className="sub">
             This is your permanent login ID.{' '}
             {cfg.otpMode === 'manual'
-              ? "Tap below and we'll open WhatsApp so you can request a code from us."
+              ? "We'll check it's available, then open WhatsApp so you can request a code from us."
               : "We'll send a one-time code to confirm it's yours."}
           </p>
 
           {numberTaken && (
             <Notice kind="info">
-              This number already has an account. <Link to="/login">Go to login</Link> instead.
+              This number already has an account.{' '}
+              <Link className="btn-link" to="/login">
+                Log in
+              </Link>{' '}
+              instead.
             </Notice>
           )}
           {error && <Notice kind="error">{error}</Notice>}
@@ -177,7 +193,7 @@ export default function Register() {
           </Field>
 
           <button className="btn" type="submit" disabled={busy || local.length < 6}>
-            {busy ? 'Opening…' : cfg.otpMode === 'manual' ? 'Request code on WhatsApp' : 'Send code'}
+            {busy ? 'Checking…' : cfg.otpMode === 'manual' ? 'Continue' : 'Send code'}
           </button>
           <div className="row-between" style={{ marginTop: 14 }}>
             <button type="button" className="btn ghost" onClick={() => setStep(0)}>
@@ -185,6 +201,25 @@ export default function Register() {
             </button>
           </div>
         </form>
+      )}
+
+      {/* Step 1b — manual mode only: number confirmed free, ready to open WhatsApp */}
+      {step === 1 && awaitingWhatsapp && (
+        <>
+          <h1>Request your code</h1>
+          <p className="sub">
+            <strong>{verifiedNumber}</strong> is available. Tap below to open WhatsApp and send the
+            request — nothing is sent until you do.
+          </p>
+          <button className="btn" type="button" onClick={openWhatsAppAndContinue}>
+            Request code on WhatsApp
+          </button>
+          <div className="row-between" style={{ marginTop: 14 }}>
+            <button type="button" className="btn ghost" onClick={() => setAwaitingWhatsapp(false)}>
+              ← Change number
+            </button>
+          </div>
+        </>
       )}
 
       {/* Step 2 — OTP */}

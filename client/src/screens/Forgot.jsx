@@ -19,27 +19,45 @@ export default function Forgot() {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [noAccount, setNoAccount] = useState(false);
+  // Manual mode only: number checked and confirmed to have an account, waiting
+  // on the user to tap through to WhatsApp (a separate click, so it's never
+  // opened for a number that turns out to have no account at all).
+  const [awaitingWhatsapp, setAwaitingWhatsapp] = useState(false);
 
-  async function sendOtp(e) {
+  async function checkAndSend(e) {
     e.preventDefault();
-    // Open WhatsApp synchronously, inside the click gesture (mobile blocks it
-    // otherwise after the await).
-    if (cfg?.otpMode === 'manual' && cfg.manualWhatsappUrl) {
-      window.open(cfg.manualWhatsappUrl, '_blank', 'noopener');
-    }
+    // No WhatsApp popup here — we don't yet know this number has an account.
+    // Only once the server confirms that (manual mode) do we show a button
+    // that opens WhatsApp, as its own click gesture.
     setBusy(true);
     setError(null);
+    setNoAccount(false);
     try {
       const res = await api.sendOtp(fullNumber(country, local), 'reset');
       setSendMeta(res);
       setNumber(res.whatsappNumber);
       if (res.whatsappUrl) setManualUrl(res.whatsappUrl);
-      setStep(1);
+      if (cfg?.otpMode === 'manual') {
+        setAwaitingWhatsapp(true);
+      } else {
+        setStep(1);
+      }
     } catch (err) {
-      setError(err.message || 'Could not send the code.');
+      if (err instanceof ApiError && err.code === 'no_account') {
+        setNoAccount(true);
+      } else {
+        setError(err.message || 'Could not send the code.');
+      }
     } finally {
       setBusy(false);
     }
+  }
+
+  function openWhatsAppAndContinue() {
+    const url = manualUrl || cfg?.manualWhatsappUrl;
+    if (url) window.open(url, '_blank', 'noopener');
+    setStep(1);
   }
 
   async function submitPassword(e) {
@@ -69,15 +87,24 @@ export default function Forgot() {
     <Card>
       <Stepper count={3} current={step} />
 
-      {step === 0 && (
-        <form onSubmit={sendOtp}>
+      {step === 0 && !awaitingWhatsapp && (
+        <form onSubmit={checkAndSend}>
           <h1>Reset your password</h1>
           <p className="sub">
             Enter the WhatsApp number on your account.{' '}
             {cfg?.otpMode === 'manual'
-              ? "We'll open WhatsApp so you can request a code from us."
+              ? "We'll check it, then open WhatsApp so you can request a code from us."
               : "We'll send a one-time code to verify it's you."}
           </p>
+          {noAccount && (
+            <Notice kind="info">
+              No account found for this number.{' '}
+              <Link className="btn-link" to="/register">
+                Create one
+              </Link>{' '}
+              instead.
+            </Notice>
+          )}
           {error && <Notice kind="error">{error}</Notice>}
           <Field label="WhatsApp number">
             <PhoneInput
@@ -89,12 +116,30 @@ export default function Forgot() {
             />
           </Field>
           <button className="btn" type="submit" disabled={busy || local.length < 6}>
-            {busy ? 'Opening…' : cfg?.otpMode === 'manual' ? 'Request code on WhatsApp' : 'Send code'}
+            {busy ? 'Checking…' : cfg?.otpMode === 'manual' ? 'Continue' : 'Send code'}
           </button>
           <p className="foot-links">
             <Link to="/login">Back to login</Link>
           </p>
         </form>
+      )}
+
+      {step === 0 && awaitingWhatsapp && (
+        <>
+          <h1>Request your code</h1>
+          <p className="sub">
+            Account found for <strong>{number}</strong>. Tap below to open WhatsApp and send the
+            request — nothing is sent until you do.
+          </p>
+          <button className="btn" type="button" onClick={openWhatsAppAndContinue}>
+            Request code on WhatsApp
+          </button>
+          <div className="row-between" style={{ marginTop: 14 }}>
+            <button type="button" className="btn ghost" onClick={() => setAwaitingWhatsapp(false)}>
+              ← Change number
+            </button>
+          </div>
+        </>
       )}
 
       {step === 1 && (
