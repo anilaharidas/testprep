@@ -10,7 +10,7 @@ export class MockOtpProvider extends OtpProvider {
     return 'mock';
   }
 
-  async send(config, { whatsappNumber, code, purpose }) {
+  async send(ctx, { whatsappNumber, code, purpose }) {
     // eslint-disable-next-line no-console
     console.log(
       `\n  [mock-otp] ${purpose} code for ${whatsappNumber}: ${code}  (would be sent over WhatsApp)\n`,

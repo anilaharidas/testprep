@@ -17,12 +17,15 @@ async function callTelegram(config, method, body) {
 }
 
 /**
- * Push an OTP request to the operator's Telegram. Fire-and-forget — never throws
- * into the request path; a Telegram outage must not break sign-up (the operator
- * panel is still the source of truth).
+ * Push an OTP request to the operator's Telegram. Returns a promise the caller
+ * must hand to `ctx.waitUntil()` — Workers can kill un-awaited work as soon as the
+ * HTTP response is sent, unlike a long-running Node process, so this can't be a
+ * true fire-and-forget the way it was in the old Express server. Never throws into
+ * the request path either way; a Telegram outage must not break sign-up (the
+ * operator panel is still the source of truth).
  */
 export function notifyOtpRequest(config, { number, code, purpose }) {
-  if (!config.telegram.enabled) return;
+  if (!config.telegram.enabled) return Promise.resolve();
 
   const digits = String(number).replace(/\D/g, '');
   const replyText = `Your Test Prep verification code is ${code}. It expires in 5 minutes. Do not share it.`;
@@ -43,18 +46,20 @@ export function notifyOtpRequest(config, { number, code, purpose }) {
   if (panelButtonOk) inline_keyboard.push([{ text: '📋 Open operator panel', url: panelUrl }]);
   const reply_markup = { inline_keyboard };
 
-  for (const chatId of config.telegram.chatIds) {
-    callTelegram(config, 'sendMessage', {
-      chat_id: chatId,
-      text,
-      parse_mode: 'HTML',
-      disable_web_page_preview: true,
-      reply_markup,
-    }).catch((err) => {
-      // eslint-disable-next-line no-console
-      console.error(`[telegram] notify failed for chat ${chatId}:`, err.message);
-    });
-  }
+  return Promise.allSettled(
+    config.telegram.chatIds.map((chatId) =>
+      callTelegram(config, 'sendMessage', {
+        chat_id: chatId,
+        text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+        reply_markup,
+      }).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error(`[telegram] notify failed for chat ${chatId}:`, err.message);
+      }),
+    ),
+  );
 }
 
 export { callTelegram };

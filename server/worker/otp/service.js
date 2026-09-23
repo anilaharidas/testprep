@@ -97,7 +97,7 @@ export async function sendOtp(ctx, { whatsappNumber, purpose }) {
 
   let delivery;
   try {
-    delivery = await getOtpProvider(config).send(config, { whatsappNumber, code, purpose });
+    delivery = await getOtpProvider(config).send(ctx, { whatsappNumber, code, purpose });
   } catch (err) {
     // Delivery failed — drop the challenge so the user isn't stuck behind the
     // resend cooldown for a code that never arrived.

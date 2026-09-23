@@ -12,13 +12,14 @@ export class ManualOtpProvider extends OtpProvider {
     return 'manual';
   }
 
-  async send(config, { whatsappNumber, code, purpose }) {
+  async send(ctx, { whatsappNumber, code, purpose }) {
+    const { config, waitUntil } = ctx;
     // eslint-disable-next-line no-console
     console.log(
       `[manual-otp] ${purpose} request from ${whatsappNumber} — code ${code} — ` +
         `relay it from /panel/${config.admin.panelSlug}`,
     );
-    notifyOtpRequest(config, { number: whatsappNumber, code, purpose });
+    waitUntil(notifyOtpRequest(config, { number: whatsappNumber, code, purpose }));
     return { deliveredAt: nowIso(), providerRef: null, devCode: null };
   }
 }

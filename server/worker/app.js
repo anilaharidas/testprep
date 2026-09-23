@@ -51,7 +51,8 @@ export function createApp() {
   app.use('*', async (c, next) => {
     const config = buildConfig(c.env);
     const db = makeDb(c.env);
-    c.set('ctx', { db, config });
+    const waitUntil = (p) => c.executionCtx.waitUntil(Promise.resolve(p).catch(() => {}));
+    c.set('ctx', { db, config, waitUntil });
 
     // No Cron Trigger on Pages Functions — sweep expired OTP/session state
     // opportunistically instead of on a timer.

@@ -6,8 +6,12 @@
  * live in the app (see worker/otp/service.js) so they are identical across providers.
  *
  * Implement:
- *   name                             -> string
- *   async send(config, { whatsappNumber, code, purpose }) -> { deliveredAt, providerRef?, devCode? }
+ *   name                          -> string
+ *   async send(ctx, { whatsappNumber, code, purpose }) -> { deliveredAt, providerRef?, devCode? }
+ *
+ * `ctx` is `{ db, config, waitUntil }` — providers that kick off background work
+ * (e.g. a Telegram push) after replying must hand that promise to `ctx.waitUntil()`,
+ * since the Workers runtime can kill un-awaited work once the response is sent.
  *
  * `devCode` is optional and only used by non-production providers to surface the
  * code back to the client/UI. Real providers must never return it.
@@ -18,7 +22,7 @@ export class OtpProvider {
   }
 
   // eslint-disable-next-line no-unused-vars
-  async send(config, { whatsappNumber, code, purpose }) {
+  async send(ctx, { whatsappNumber, code, purpose }) {
     throw new Error('OtpProvider.send() not implemented');
   }
 }

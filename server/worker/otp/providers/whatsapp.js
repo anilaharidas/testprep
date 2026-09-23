@@ -39,8 +39,8 @@ export class WhatsAppOtpProvider extends OtpProvider {
     };
   }
 
-  async send(config, { whatsappNumber, code, purpose }) {
-    const cfg = config.whatsapp;
+  async send(ctx, { whatsappNumber, code, purpose }) {
+    const cfg = ctx.config.whatsapp;
     const missing = ['phoneNumberId', 'token', 'templateName', 'templateLang'].filter((k) => !cfg[k]);
     if (missing.length) {
       throw new Error(
