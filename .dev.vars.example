@@ -1,0 +1,55 @@
+# Copy to .dev.vars for local `wrangler pages dev` (that file is gitignored). For the
+# deployed Pages project, set the same names as environment variables/secrets in the
+# Cloudflare dashboard instead — this file is local-only.
+
+CLIENT_ORIGIN=http://localhost:8788
+
+# OTP provider: "mock" (default) returns the code to the client and logs it.
+#               "whatsapp" sends via the WhatsApp Business Cloud API.
+#               "manual"   the operator relays the code by hand via the panel at
+#                          /panel/<slug>. No message is sent by the server.
+OTP_PROVIDER=mock
+
+# --- Manual relay (only when OTP_PROVIDER=manual) ------------------------------
+OTP_MANUAL_OPERATOR_NUMBER=917510563991
+OTP_MANUAL_REQUEST_MESSAGE=Hi, I requested an OTP for the Test Prep website.
+
+# Operator panel — protected by BOTH a secret URL slug and a password. Unlike the
+# old Express server, there is no filesystem to auto-generate and persist a slug —
+# both must be set explicitly here (and in the Pages dashboard for production).
+ADMIN_PASSWORD=change-me
+ADMIN_PANEL_SLUG=change-me-too
+ADMIN_SESSION_HOURS=12
+
+# --- Telegram push to the operator (optional, manual mode) --------------------
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+
+# --- WhatsApp Cloud API (only needed when OTP_PROVIDER=whatsapp) ---------------
+WHATSAPP_API_VERSION=v21.0
+WHATSAPP_PHONE_NUMBER_ID=
+WHATSAPP_TOKEN=
+WHATSAPP_TEMPLATE_NAME=otp_verification
+WHATSAPP_TEMPLATE_LANG=en_US
+WHATSAPP_TEMPLATE_HAS_BUTTON=true
+WHATSAPP_TEMPLATE_BUTTON_SUBTYPE=url
+
+# OTP tuning
+OTP_STRATEGY=phone_formula
+OTP_FORMULA_MUL=7919
+OTP_FORMULA_ADD=104729
+OTP_FORMULA_PURPOSE_STEP=2749
+OTP_FORMULA_RESEND_STEP=3517
+OTP_LENGTH=6
+OTP_TTL_SECONDS=300
+OTP_RESEND_COOLDOWN_SECONDS=45
+OTP_MAX_ATTEMPTS=3
+OTP_LOCK_MINUTES=30
+
+# Login lockout
+LOGIN_MAX_ATTEMPTS=5
+LOGIN_LOCK_MINUTES=15
+
+VERIFICATION_TOKEN_TTL_HOURS=24
+SESSION_TTL_DAYS=30
+GRADES=6,7,8,9,10
