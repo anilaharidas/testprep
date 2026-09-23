@@ -1,0 +1,12 @@
+name = "testprep"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "client/dist"
+
+# Created via `wrangler d1 create testprep-db` — replace database_id with the real
+# one it prints, and add the same binding in the Cloudflare Pages dashboard
+# (Settings -> Functions -> D1 database bindings) for the deployed project.
+[[d1_databases]]
+binding = "DB"
+database_name = "testprep-db"
+database_id = "c38d8128-f0ef-443d-a9bb-19a58f25095e"

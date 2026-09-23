@@ -1,7 +1,11 @@
 node_modules/
 dist/
 server/data/
+server/seed/sql/
 .env
 .env.local
+.dev.vars
+.dev.vars.local
+.wrangler/
 .DS_Store
 *.log

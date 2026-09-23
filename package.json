@@ -7,9 +7,16 @@
     "install:all": "npm install && npm --prefix server install && npm --prefix client install",
     "dev": "concurrently -n server,client -c blue,magenta \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
     "start": "npm --prefix server start",
-    "build": "npm --prefix client run build"
+    "build": "npm --prefix client run build",
+    "cf:build-seed": "node server/seed/build-seed-sql.js",
+    "cf:dev": "npm run build && wrangler pages dev client/dist --compatibility-flags=nodejs_compat",
+    "cf:deploy": "npm run build && wrangler pages deploy client/dist"
+  },
+  "dependencies": {
+    "hono": "^4.6.14"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.1.0",
+    "wrangler": "^3.90.0"
   }
 }
