@@ -9,4 +9,4 @@ pages_build_output_dir = "client/dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "testprep-db"
-database_id = "REPLACE_WITH_REAL_D1_DATABASE_ID"
+database_id = "c38d8128-f0ef-443d-a9bb-19a58f25095e"
