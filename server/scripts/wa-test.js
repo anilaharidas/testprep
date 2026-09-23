@@ -10,9 +10,23 @@
  * in the last 24h OR the number/template must be approved for the recipient's
  * region; a test number can only message pre-registered recipients.
  */
-import '../src/config.js';
-import { config } from '../src/config.js';
-import { WhatsAppOtpProvider } from '../src/otp/providers/whatsapp.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { buildConfig } from '../worker/config.js';
+import { WhatsAppOtpProvider } from '../worker/otp/providers/whatsapp.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const envPath = path.join(__dirname, '..', '.env');
+if (fs.existsSync(envPath)) {
+  try {
+    process.loadEnvFile(envPath);
+  } catch {
+    /* ignore malformed .env */
+  }
+}
+
+const config = buildConfig(process.env);
 
 const to = process.argv[2];
 const code = process.argv[3] || String(Math.floor(100000 + Math.random() * 900000));
@@ -31,7 +45,7 @@ console.log('Config:', {
 
 try {
   const provider = new WhatsAppOtpProvider();
-  const res = await provider.send({ whatsappNumber: to, code, purpose: 'register' });
+  const res = await provider.send({ config }, { whatsappNumber: to, code, purpose: 'register' });
   console.log(`\n✓ Sent code ${code} to ${to}`);
   console.log(res);
 } catch (err) {

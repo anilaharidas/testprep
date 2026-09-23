@@ -5,12 +5,11 @@
   "description": "Registration & login workflow for a high-school test-prep questionnaire app (free mode only)",
   "scripts": {
     "install:all": "npm install && npm --prefix server install && npm --prefix client install",
-    "dev": "concurrently -n server,client -c blue,magenta \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
-    "start": "npm --prefix server start",
+    "predev": "npm run build",
+    "dev": "concurrently -n functions,client -c blue,magenta \"wrangler pages dev client/dist --compatibility-flags=nodejs_compat --port=8788\" \"npm --prefix client run dev\"",
     "build": "npm --prefix client run build",
-    "cf:build-seed": "node server/seed/build-seed-sql.js",
-    "cf:dev": "npm run build && wrangler pages dev client/dist --compatibility-flags=nodejs_compat",
-    "cf:deploy": "npm run build && wrangler pages deploy client/dist"
+    "seed": "node server/seed/build-seed-sql.js",
+    "deploy": "npm run build && wrangler pages deploy client/dist"
   },
   "dependencies": {
     "hono": "^4.6.14"

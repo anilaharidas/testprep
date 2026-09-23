@@ -9,8 +9,22 @@
  * Prints every chat that has messaged the bot recently. Put the id you want in
  * TELEGRAM_CHAT_ID (comma-separate for several).
  */
-import '../src/config.js';
-import { config } from '../src/config.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { buildConfig } from '../worker/config.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const envPath = path.join(__dirname, '..', '.env');
+if (fs.existsSync(envPath)) {
+  try {
+    process.loadEnvFile(envPath);
+  } catch {
+    /* ignore malformed .env */
+  }
+}
+
+const config = buildConfig(process.env);
 
 if (!config.telegram.botToken) {
   console.error('Set TELEGRAM_BOT_TOKEN in server/.env first.');
