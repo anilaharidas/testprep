@@ -135,17 +135,19 @@ function main() {
     );
   }
 
-  // Collapse within-chapter repeats of the same question + answer set.
+  // Collapse within-chapter repeats of the same question text, regardless of
+  // answer options. The generator sometimes re-asked the identical question
+  // with a different (occasionally broken, e.g. a literal "option 8178-3"
+  // placeholder) set of answer choices each time — keying dedup on
+  // question+options only caught the case where the options matched too, and
+  // left hundreds of these looser repeats in the bank, which showed up as the
+  // same question appearing twice under different numbers in one test.
+  // Question identity is the text alone; first occurrence in the CSV wins.
   const seen = new Set();
   const records = [];
   let dupes = 0;
   for (const r of allRecords) {
-    const optionSet = [r.option_a, r.option_b, r.option_c, r.option_d]
-      .filter(Boolean)
-      .slice()
-      .sort()
-      .join('|');
-    const key = [r.grade, r.subject, r.chapter_no, r.chapter, r.question, optionSet].join('|');
+    const key = [r.grade, r.subject, r.chapter_no, r.chapter, r.question].join('|');
     if (seen.has(key)) {
       dupes += 1;
       continue;

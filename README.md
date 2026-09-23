@@ -38,15 +38,19 @@ their content:
   "Maths" in the source file, every other grade used "Mathematics" — same subject).
 - A trailing generator artifact like `[Source gegp203.pdf, case 13362]` (~12% of rows)
   is stripped from the question text — not meant for students to see.
-- **Duplicate rows are collapsed to one.** The source generator asks the same question
-  with the same 4 answer texts many times over (e.g. grade 8 Maths' "A ratio compares:"
-  40 times in one chapter) — distinguishable, pre-strip, only by the `[Source]` tag's
-  case id. Import keeps one row per (grade, subject, chapter, question, answer-set),
-  ignoring which letter the correct answer landed on. 29,557 → **27,158** rows; verified
-  zero cases where duplicates disagreed on the correct answer. Quiz generation also
-  over-fetches and drops any repeat by question text before returning results, so the
-  rare cross-chapter duplicate (question legitimately listed under two chapters, ~18
-  cases) still can't produce the same question twice in one test.
+- **Duplicate rows are collapsed to one per (grade, subject, chapter, question) —
+  question text alone is the identity, regardless of the answer options.** The source
+  generator repeats the same question prompt many times over within a chapter (e.g.
+  grade 8 Maths' "A ratio compares:" 40 times), and not always with the same answer
+  options attached — some repeats carry a different (occasionally broken, e.g. a
+  literal `"option 8178-3"` placeholder) set of distractors each time. Deduping on
+  question text only, not question+options, catches both cases; keeping options in the
+  key left hundreds of these looser repeats in the bank, which surfaced as the same
+  question appearing twice under different numbers in one test. First occurrence in
+  the CSV wins. 29,557 → **26,793** rows. Quiz generation also over-fetches and drops
+  any repeat by question text before returning results, so the rare cross-chapter
+  duplicate (question legitimately listed under two chapters, ~18 cases) still can't
+  produce the same question twice in one test.
 - **Chapter title spelling canonicalized** within one (grade, subject, chapter number) —
   3 chapters had a spelling variant (e.g. "A Square and A Cube" vs "...a Cube", or a
   curly vs straight apostrophe) that would otherwise split one chapter's questions across
