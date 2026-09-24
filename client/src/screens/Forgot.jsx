@@ -145,13 +145,14 @@ export default function Forgot() {
       {step === 1 && (
         <OtpStep
           whatsappNumber={number}
-          purpose="reset"
           otpLength={cfg?.otpLength || 6}
           sendMeta={sendMeta}
           manual={cfg?.otpMode === 'manual'}
           whatsappUrl={manualUrl}
-          onVerified={(t) => {
-            setToken(t);
+          onSend={() => api.sendOtp(number, 'reset')}
+          onVerify={(code) => api.verifyOtp(number, code, 'reset')}
+          onVerified={(res) => {
+            setToken(res.verificationToken);
             setError(null);
             setStep(2);
           }}

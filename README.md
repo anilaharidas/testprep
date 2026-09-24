@@ -11,6 +11,15 @@ Built from `Test Prep Sign-Up Flow.pdf` (Product Spec V1).
   profiles — name + grade only.
 - **WhatsApp OTP** verifies identity at sign-up and password reset. It is **not** used for
   everyday login — the password set at registration is the everyday credential.
+- **Deferred verification**: at registration, after the number is confirmed available,
+  the user chooses **Verify now** (request the code and verify immediately, same flow as
+  before) or **Verify later** (set a password and start using the app right away, no OTP
+  yet). An unverified account shows a persistent "Verification pending" notice on the
+  dashboard that opens the same OTP flow whenever the user is ready. A number can't be
+  claimed twice regardless of verification status, so an unverified account still blocks
+  anyone else from registering with that number — to stop a typo'd or squatted number
+  staying blocked forever, an account left unverified for 7 days is automatically removed
+  by the maintenance sweep, freeing the number back up.
 - **Free-mode caps** are enforced at the "add child / student" step, not at registration,
   so an account can start with zero dependents.
 - **MCQ practice**: from the dashboard, a parent/teacher picks a dependent, then narrows
@@ -261,12 +270,15 @@ tokens) is provider-independent and does not change.
 
 ## Flows implemented
 
-1. **Registration** — role → WhatsApp number → OTP verify → name + password → add
-   dependents loop (capped) → dashboard. Already-registered numbers are routed to Login.
+1. **Registration** — role → WhatsApp number (availability checked, no OTP sent yet) →
+   **Verify now** (request code → OTP verify → name + password) or **Verify later** (name
+   + password immediately, number unverified) → add dependents loop (capped) →
+   dashboard. Already-registered numbers are routed to Login.
 2. **Login** — WhatsApp number + password. Unknown number → Register. Repeated wrong
    passwords → temporary lock + Forgot-password.
 3. **Password reset** — Forgot password → number → OTP → new password → back to login.
-4. **Dashboard** — view account, add/remove dependents up to the role cap.
+4. **Dashboard** — view account, add/remove dependents up to the role cap. An unverified
+   account shows a "Verification pending" notice that opens the OTP flow on demand.
 
 ## Open questions (from the spec — defaults chosen here)
 

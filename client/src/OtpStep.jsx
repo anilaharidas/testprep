@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api, ApiError } from './api.js';
+import { ApiError } from './api.js';
 import { useAppConfig } from './useAppConfig.js';
 import {
   Notice,
@@ -10,26 +10,31 @@ import {
 } from './ui.jsx';
 
 /**
- * Shared OTP entry step for registration and password reset.
+ * Shared OTP entry step — used for anonymous registration, anonymous password
+ * reset, and the authenticated "verify a pending account's phone" flow. Those
+ * three hit different endpoints, so the actual send/verify calls are injected
+ * rather than hardcoded (same pattern as QuizFlow's `calls` prop).
  *
  * Props:
- *   whatsappNumber  - normalized number the code was sent to
- *   purpose         - 'register' | 'reset'
+ *   whatsappNumber  - normalized number the code was sent to (display only)
  *   otpLength       - digits expected
- *   sendMeta        - result of the initial /otp/send call
+ *   sendMeta        - result of the initial send call already made by the caller
  *   manual          - true when the operator relays the code by hand
- *   whatsappUrl     - wa.me link from /otp/send (manual mode); a static fallback
- *                     also comes from /config
- *   onVerified(token)
+ *   whatsappUrl     - wa.me link from the initial send (manual mode); a static
+ *                     fallback also comes from /config
+ *   onSend()        - request a fresh code (resend); returns the send result
+ *   onVerify(code)  - submit the code; returns the verify result
+ *   onVerified(result) - called with onVerify's resolved result on success
  *   onBack()
  */
 export default function OtpStep({
   whatsappNumber,
-  purpose,
   otpLength,
   sendMeta,
   manual = false,
   whatsappUrl = null,
+  onSend,
+  onVerify,
   onVerified,
   onBack,
 }) {
@@ -57,8 +62,8 @@ export default function OtpStep({
     setBusy(true);
     setError(null);
     try {
-      const res = await api.verifyOtp(whatsappNumber, code, purpose);
-      onVerified(res.verificationToken);
+      const res = await onVerify(code);
+      onVerified(res);
     } catch (err) {
       handle(err);
     } finally {
@@ -74,7 +79,7 @@ export default function OtpStep({
     setError(null);
     setAttemptsLeft(null);
     try {
-      const res = await api.sendOtp(whatsappNumber, purpose);
+      const res = await onSend();
       setMeta(res);
       setCode('');
       setLockedUntil(null);
