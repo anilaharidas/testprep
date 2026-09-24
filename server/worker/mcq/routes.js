@@ -91,6 +91,12 @@ mcqApp.get('/attempts', async (c) => {
   return c.json({ ok: true, attempts });
 });
 
+mcqApp.get('/attempts/:id', async (c) => {
+  const { db } = c.get('ctx');
+  const detail = await attemptDetail(db, c.get('account').id, Number(c.req.param('id')));
+  return c.json({ ok: true, ...detail });
+});
+
 // ---- share links + their results (teacher/parent side) -------------------
 
 mcqApp.post('/share-link', async (c) => {

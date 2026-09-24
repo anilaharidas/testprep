@@ -110,9 +110,14 @@ export default function Dashboard() {
       </p>
 
       <div className="divider" />
-      <Link className="btn-link" to="/results">
-        Shared test results →
-      </Link>
+      <div className="row-between">
+        <Link className="btn-link" to="/history">
+          Practice history →
+        </Link>
+        <Link className="btn-link" to="/results">
+          Shared test results →
+        </Link>
+      </div>
     </Card>
   );
 }

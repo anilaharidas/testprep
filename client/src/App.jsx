@@ -7,6 +7,7 @@ import Login from './screens/Login.jsx';
 import Forgot from './screens/Forgot.jsx';
 import Dashboard from './screens/Dashboard.jsx';
 import PracticeNow from './screens/PracticeNow.jsx';
+import PracticeHistory from './screens/PracticeHistory.jsx';
 import ShareResults from './screens/ShareResults.jsx';
 import SharedQuiz from './screens/SharedQuiz.jsx';
 import OperatorPanel from './screens/OperatorPanel.jsx';
@@ -43,6 +44,7 @@ function MainApp() {
         <Route path="/forgot" element={account ? <Navigate to="/dashboard" replace /> : <Forgot />} />
         <Route path="/dashboard" element={account ? <Dashboard /> : <Navigate to="/" replace />} />
         <Route path="/practice" element={account ? <PracticeNow /> : <Navigate to="/" replace />} />
+        <Route path="/history" element={account ? <PracticeHistory /> : <Navigate to="/" replace />} />
         <Route path="/results" element={account ? <ShareResults /> : <Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

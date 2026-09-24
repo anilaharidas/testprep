@@ -85,6 +85,7 @@ export const api = {
       body: { grade, subject, chapterNo, questionIds, answers },
     }),
   mcqAttempts: () => request('/mcq/attempts'),
+  mcqAttemptDetail: (id) => request(`/mcq/attempts/${id}`),
 
   // Shareable practice link (teacher/parent side) — always mints a fresh
   // token, good for up to 4 completed tests.
