@@ -5,6 +5,7 @@ import { useAuth } from '../auth.jsx';
 import { useAppConfig } from '../useAppConfig.js';
 import { Card, Notice } from '../ui.jsx';
 import DependentForm from '../DependentForm.jsx';
+import OtpStep from '../OtpStep.jsx';
 
 export default function Dashboard() {
   const { account, setAccount, logout } = useAuth();
@@ -12,8 +13,48 @@ export default function Dashboard() {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
+  const [verifying, setVerifying] = useState(false);
+  const [verifySendMeta, setVerifySendMeta] = useState(null);
 
   if (!account) return null;
+
+  async function startVerify() {
+    setError(null);
+    try {
+      // Open WhatsApp synchronously, inside the click — no ambiguity to check
+      // first here (unlike registration), this account is already known to
+      // need verifying.
+      if (cfg?.otpMode === 'manual' && cfg.manualWhatsappUrl) {
+        window.open(cfg.manualWhatsappUrl, '_blank', 'noopener');
+      }
+      const res = await api.verifyPhoneSend();
+      setVerifySendMeta(res);
+      setVerifying(true);
+    } catch (err) {
+      setError(err.message || 'Could not send the code.');
+    }
+  }
+
+  if (verifying) {
+    return (
+      <Card>
+        <OtpStep
+          whatsappNumber={account.whatsappNumber}
+          otpLength={cfg?.otpLength || 6}
+          sendMeta={verifySendMeta}
+          manual={cfg?.otpMode === 'manual'}
+          whatsappUrl={verifySendMeta?.whatsappUrl}
+          onSend={() => api.verifyPhoneSend()}
+          onVerify={(code) => api.verifyPhoneConfirm(code)}
+          onVerified={(res) => {
+            setAccount(res.account);
+            setVerifying(false);
+          }}
+          onBack={() => setVerifying(false)}
+        />
+      </Card>
+    );
+  }
 
   const { dependentLabel, dependentLabelPlural, cap, dependents, canAddDependent } = account;
 
@@ -60,6 +101,15 @@ export default function Dashboard() {
       <p className="sub" style={{ marginTop: 12 }}>
         {account.whatsappNumber} · joined {new Date(account.createdAt + 'Z').toLocaleDateString()}
       </p>
+
+      {!account.phoneVerified && (
+        <Notice kind="warn">
+          Verification pending.{' '}
+          <button type="button" className="btn-link" onClick={startVerify}>
+            Verify now
+          </button>
+        </Notice>
+      )}
 
       <div className="divider" />
 

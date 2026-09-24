@@ -12,6 +12,8 @@ import { shareApp } from './mcq/shareRoutes.js';
 import { requireAuth, SESSION_COOKIE } from './middleware.js';
 import {
   register,
+  registerUnverified,
+  markPhoneVerified,
   login,
   resetPassword,
   numberIsRegistered,
@@ -103,6 +105,27 @@ export function createApp() {
 
   // ---- OTP --------------------------------------------------------------
 
+  // Availability check only — no OTP challenge created, no operator ping. Lets
+  // the client find out up front whether a number is free/registered before
+  // committing to "Verify now" (which does send a real code) or offering
+  // "Verify later" (which shouldn't generate any OTP activity at all).
+  app.post('/api/check-number', async (c) => {
+    const ctx = c.get('ctx');
+    const body = await c.req.json().catch(() => ({}));
+    const whatsappNumber = requirePhone(body);
+    const purpose = body?.purpose === 'reset' ? 'reset' : 'register';
+
+    if (purpose === 'register' && (await numberIsRegistered(ctx.db, whatsappNumber))) {
+      throw new ApiError(409, 'number_taken', 'This number already has an account. Please log in.', {
+        login: true,
+      });
+    }
+    if (purpose === 'reset' && !(await numberIsRegistered(ctx.db, whatsappNumber))) {
+      throw new ApiError(404, 'no_account', 'No account found for this number.', { register: true });
+    }
+    return c.json({ ok: true, whatsappNumber });
+  });
+
   app.post('/api/otp/send', async (c) => {
     const ctx = c.get('ctx');
     const body = await c.req.json().catch(() => ({}));
@@ -160,6 +183,17 @@ export function createApp() {
     return c.json({ ok: true, account: await accountView(ctx, account) });
   });
 
+  app.post('/api/register-unverified', async (c) => {
+    const ctx = c.get('ctx');
+    const body = await c.req.json().catch(() => ({}));
+    const whatsappNumber = requirePhone(body);
+    const { role, name, password } = body || {};
+    const { sessionToken } = await registerUnverified(ctx, { role, name, password, whatsappNumber });
+    setCookie(c, SESSION_COOKIE, sessionToken, cookieOpts(ctx.config));
+    const account = await sessionAccount(ctx.db, sessionToken);
+    return c.json({ ok: true, account: await accountView(ctx, account) });
+  });
+
   app.post('/api/password-reset', async (c) => {
     const ctx = c.get('ctx');
     const body = await c.req.json().catch(() => ({}));
@@ -193,6 +227,31 @@ export function createApp() {
     const ctx = c.get('ctx');
     const account = await removeDependent(ctx, c.get('account'), Number(c.req.param('id')));
     return c.json({ ok: true, account });
+  });
+
+  // ---- deferred phone verification -------------------------------------
+
+  app.post('/api/verify-phone/send', requireAuth(), async (c) => {
+    const ctx = c.get('ctx');
+    const account = c.get('account');
+    if (account.phone_verified_at) {
+      throw new ApiError(409, 'already_verified', 'This number is already verified.');
+    }
+    const result = await sendOtp(ctx, { whatsappNumber: account.whatsapp_number, purpose: 'register' });
+    const manual = ctx.config.otp.isManual
+      ? { manual: true, whatsappUrl: manualRelayUrl(ctx.config, account.whatsapp_number) }
+      : {};
+    return c.json({ ok: true, whatsappNumber: account.whatsapp_number, ...result, ...manual });
+  });
+
+  app.post('/api/verify-phone/confirm', requireAuth(), async (c) => {
+    const ctx = c.get('ctx');
+    const account = c.get('account');
+    const body = await c.req.json().catch(() => ({}));
+    const code = String(body?.code || '').trim();
+    await verifyOtp(ctx, { whatsappNumber: account.whatsapp_number, code, purpose: 'register' });
+    const fresh = await markPhoneVerified(ctx.db, account.id);
+    return c.json({ ok: true, account: await accountView(ctx, fresh) });
   });
 
   return app;

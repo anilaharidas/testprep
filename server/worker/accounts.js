@@ -1,4 +1,4 @@
-import { ApiError, hash, verifyHash, randomToken, isoIn, isPast } from './util.js';
+import { ApiError, hash, verifyHash, randomToken, nowIso, isoIn, isPast } from './util.js';
 import { consumeVerificationToken } from './otp/service.js';
 
 export async function numberIsRegistered(db, whatsappNumber) {
@@ -54,11 +54,47 @@ export async function register(ctx, { verificationToken, role, name, password })
   }
 
   const info = await db
+    .prepare(
+      `INSERT INTO account (role, name, whatsapp_number, password_hash, phone_verified_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(role, cleanName, whatsappNumber, hash(password), nowIso());
+
+  const accountId = info.lastInsertRowid;
+  return { sessionToken: await createSession(db, config, accountId), accountId };
+}
+
+/**
+ * "Verify later" path: creates the account directly from a phone number, no
+ * verification token required. `phone_verified_at` stays NULL (the column
+ * default) until the owner completes verification later via
+ * markPhoneVerified — see /api/verify-phone/send + /confirm in app.js.
+ */
+export async function registerUnverified(ctx, { role, name, password, whatsappNumber }) {
+  const { db, config } = ctx;
+  const meta = roleMeta(config, role);
+  const cleanName = String(name || '').trim();
+  if (cleanName.length < 2) throw new ApiError(400, 'bad_name', 'Enter a name.');
+  if (String(password || '').length < 8) {
+    throw new ApiError(400, 'weak_password', 'Password must be at least 8 characters.');
+  }
+
+  if (await numberIsRegistered(db, whatsappNumber)) {
+    throw new ApiError(409, 'number_taken', 'This number already has an account. Please log in.');
+  }
+
+  const info = await db
     .prepare(`INSERT INTO account (role, name, whatsapp_number, password_hash) VALUES (?, ?, ?, ?)`)
     .run(role, cleanName, whatsappNumber, hash(password));
 
   const accountId = info.lastInsertRowid;
   return { sessionToken: await createSession(db, config, accountId), accountId };
+}
+
+/** Mark an account's phone verified (via /api/verify-phone/confirm); returns the fresh row. */
+export async function markPhoneVerified(db, accountId) {
+  await db.prepare(`UPDATE account SET phone_verified_at = ? WHERE id = ?`).run(nowIso(), accountId);
+  return db.prepare(`SELECT * FROM account WHERE id = ?`).get(accountId);
 }
 
 export async function login(ctx, { whatsappNumber, password }) {
@@ -138,6 +174,7 @@ export async function accountView(ctx, account) {
     name: account.name,
     whatsappNumber: account.whatsapp_number,
     createdAt: account.created_at,
+    phoneVerified: Boolean(account.phone_verified_at),
     dependentLabel: meta.dependentLabel,
     dependentLabelPlural: meta.dependentLabelPlural,
     cap: meta.cap,

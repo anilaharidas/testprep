@@ -30,11 +30,22 @@ export async function sweep(db) {
   const adminSessions = await db
     .prepare(`DELETE FROM admin_session WHERE expires_at < datetime('now')`)
     .run();
+  // "Verify later" accounts that never completed verification — same
+  // don't-let-incomplete-state-linger principle as the rows above, and it's
+  // what frees a squatted number back up for its real owner. ON DELETE CASCADE
+  // on dependent/session/mcq_attempt/dependent_share_link cleans up the rest.
+  const unverifiedAccounts = await db
+    .prepare(
+      `DELETE FROM account
+       WHERE phone_verified_at IS NULL AND created_at < datetime('now', '-7 days')`,
+    )
+    .run();
 
   return {
     otp: otp.changes,
     tokens: tokens.changes,
     sessions: sessions.changes,
     adminSessions: adminSessions.changes,
+    unverifiedAccounts: unverifiedAccounts.changes,
   };
 }

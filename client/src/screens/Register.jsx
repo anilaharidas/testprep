@@ -29,14 +29,18 @@ export default function Register() {
   const [manualUrl, setManualUrl] = useState(null);
   const [verifiedNumber, setVerifiedNumber] = useState(null);
   const [verificationToken, setVerificationToken] = useState(null);
+  const [deferVerification, setDeferVerification] = useState(false);
   const [account, setLocalAccount] = useState(null);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [numberTaken, setNumberTaken] = useState(false);
-  // Manual mode only: number checked and confirmed available, waiting on the
-  // user to tap through to WhatsApp (a separate click, so it's never opened
-  // for a number that turns out to already have an account).
+  // Number checked and confirmed available — waiting on the user to choose
+  // Verify now / Verify later.
+  const [choosingVerify, setChoosingVerify] = useState(false);
+  // Verify now, manual mode only: OTP already sent, waiting on the user to
+  // tap through to WhatsApp (its own click, so the popup is never blocked and
+  // never opened before we know it's actually wanted).
   const [awaitingWhatsapp, setAwaitingWhatsapp] = useState(false);
 
   if (!cfg) {
@@ -47,36 +51,54 @@ export default function Register() {
     );
   }
 
-  const roleMeta = cfg.roles.find((r) => r.role === role);
   const number = fullNumber(country, local);
 
-  async function checkAndSend(e) {
+  // Step 1: availability check only — no OTP challenge created yet, so
+  // choosing "Verify later" next generates no OTP activity at all.
+  async function checkNumber(e) {
     e.preventDefault();
-    // No WhatsApp popup here — we don't yet know the number is free. Only once
-    // the server confirms that (manual mode) do we show a button that opens
-    // WhatsApp, as its own click gesture.
     setBusy(true);
     setError(null);
     setNumberTaken(false);
     try {
-      const res = await api.sendOtp(number, 'register');
-      setSendMeta(res);
+      const res = await api.checkNumber(number, 'register');
       setVerifiedNumber(res.whatsappNumber);
+      setChoosingVerify(true);
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'number_taken') {
+        setNumberTaken(true);
+      } else {
+        setError(err.message || 'Could not check that number.');
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function chooseVerifyNow() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.sendOtp(verifiedNumber, 'register');
+      setSendMeta(res);
       if (res.whatsappUrl) setManualUrl(res.whatsappUrl);
+      setChoosingVerify(false);
       if (cfg.otpMode === 'manual') {
         setAwaitingWhatsapp(true);
       } else {
         setStep(2);
       }
     } catch (err) {
-      if (err instanceof ApiError && err.code === 'number_taken') {
-        setNumberTaken(true);
-      } else {
-        setError(err.message || 'Could not send the code.');
-      }
+      setError(err.message || 'Could not send the code.');
     } finally {
       setBusy(false);
     }
+  }
+
+  function chooseVerifyLater() {
+    setDeferVerification(true);
+    setChoosingVerify(false);
+    setStep(3);
   }
 
   function openWhatsAppAndContinue() {
@@ -99,7 +121,9 @@ export default function Register() {
     setBusy(true);
     setError(null);
     try {
-      const res = await api.register({ verificationToken, role, name, password });
+      const res = deferVerification
+        ? await api.registerUnverified({ role, name, password, whatsappNumber: verifiedNumber })
+        : await api.register({ verificationToken, role, name, password });
       setLocalAccount(res.account);
       setStep(4);
     } catch (err) {
@@ -161,14 +185,12 @@ export default function Register() {
       )}
 
       {/* Step 1 — phone */}
-      {step === 1 && !awaitingWhatsapp && (
-        <form onSubmit={checkAndSend}>
+      {step === 1 && !choosingVerify && !awaitingWhatsapp && (
+        <form onSubmit={checkNumber}>
           <h1>Your WhatsApp number</h1>
           <p className="sub">
-            This is your permanent login ID.{' '}
-            {cfg.otpMode === 'manual'
-              ? "We'll check it's available, then open WhatsApp so you can request a code from us."
-              : "We'll send a one-time code to confirm it's yours."}
+            This is your permanent login ID. We'll check it's available, then you can choose when to
+            verify it.
           </p>
 
           {numberTaken && (
@@ -193,7 +215,7 @@ export default function Register() {
           </Field>
 
           <button className="btn" type="submit" disabled={busy || local.length < 6}>
-            {busy ? 'Checking…' : cfg.otpMode === 'manual' ? 'Continue' : 'Send code'}
+            {busy ? 'Checking…' : 'Continue'}
           </button>
           <div className="row-between" style={{ marginTop: 14 }}>
             <button type="button" className="btn ghost" onClick={() => setStep(0)}>
@@ -203,20 +225,58 @@ export default function Register() {
         </form>
       )}
 
-      {/* Step 1b — manual mode only: number confirmed free, ready to open WhatsApp */}
+      {/* Step 1b — number confirmed free: choose when to verify */}
+      {step === 1 && choosingVerify && (
+        <>
+          <h1>When would you like to verify?</h1>
+          <p className="sub">
+            <strong>{verifiedNumber}</strong> is available.
+          </p>
+          {error && <Notice kind="error">{error}</Notice>}
+
+          <button className="btn" type="button" disabled={busy} onClick={chooseVerifyNow}>
+            {busy ? 'Sending…' : 'Verify now'}
+          </button>
+          <p className="count-line" style={{ marginTop: 6, marginBottom: 16 }}>
+            Request a code on WhatsApp and verify right away.
+          </p>
+
+          <button className="btn secondary" type="button" disabled={busy} onClick={chooseVerifyLater}>
+            Verify later
+          </button>
+          <p className="count-line" style={{ marginTop: 6 }}>
+            Set your password now and start using the app — verify your number anytime from the
+            dashboard.
+          </p>
+
+          <div className="row-between" style={{ marginTop: 14 }}>
+            <button type="button" className="btn ghost" onClick={() => setChoosingVerify(false)} disabled={busy}>
+              ← Change number
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* Step 1c — Verify now, manual mode: code already sent, ready to open WhatsApp */}
       {step === 1 && awaitingWhatsapp && (
         <>
           <h1>Request your code</h1>
           <p className="sub">
-            <strong>{verifiedNumber}</strong> is available. Tap below to open WhatsApp and send the
-            request — nothing is sent until you do.
+            Tap below to open WhatsApp and send the request — nothing is sent until you do.
           </p>
           <button className="btn" type="button" onClick={openWhatsAppAndContinue}>
             Request code on WhatsApp
           </button>
           <div className="row-between" style={{ marginTop: 14 }}>
-            <button type="button" className="btn ghost" onClick={() => setAwaitingWhatsapp(false)}>
-              ← Change number
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => {
+                setAwaitingWhatsapp(false);
+                setChoosingVerify(true);
+              }}
+            >
+              ← Back
             </button>
           </div>
         </>
@@ -226,13 +286,14 @@ export default function Register() {
       {step === 2 && (
         <OtpStep
           whatsappNumber={verifiedNumber}
-          purpose="register"
           otpLength={cfg.otpLength}
           sendMeta={sendMeta}
           manual={cfg.otpMode === 'manual'}
           whatsappUrl={manualUrl}
-          onVerified={(token) => {
-            setVerificationToken(token);
+          onSend={() => api.sendOtp(verifiedNumber, 'register')}
+          onVerify={(code) => api.verifyOtp(verifiedNumber, code, 'register')}
+          onVerified={(res) => {
+            setVerificationToken(res.verificationToken);
             setError(null);
             setStep(3);
           }}
@@ -245,8 +306,17 @@ export default function Register() {
         <form onSubmit={submitProfile}>
           <h1>Set up your login</h1>
           <p className="sub">
-            Number verified: <strong>{verifiedNumber}</strong>. Your password is what you'll use for
-            everyday sign-in.
+            {deferVerification ? (
+              <>
+                Number: <strong>{verifiedNumber}</strong>. You can verify it anytime from the
+                dashboard.
+              </>
+            ) : (
+              <>
+                Number verified: <strong>{verifiedNumber}</strong>.
+              </>
+            )}{' '}
+            Your password is what you'll use for everyday sign-in.
           </p>
           {error && <Notice kind="error">{error}</Notice>}
           <Field label="Your name">

@@ -32,17 +32,24 @@ export const api = {
   config: () => request('/config'),
   me: () => request('/me'),
 
+  checkNumber: (whatsappNumber, purpose) =>
+    request('/check-number', { method: 'POST', body: { whatsappNumber, purpose } }),
   sendOtp: (whatsappNumber, purpose) =>
     request('/otp/send', { method: 'POST', body: { whatsappNumber, purpose } }),
   verifyOtp: (whatsappNumber, code, purpose) =>
     request('/otp/verify', { method: 'POST', body: { whatsappNumber, code, purpose } }),
 
   register: (payload) => request('/register', { method: 'POST', body: payload }),
+  registerUnverified: (payload) => request('/register-unverified', { method: 'POST', body: payload }),
   login: (whatsappNumber, password) =>
     request('/login', { method: 'POST', body: { whatsappNumber, password } }),
   resetPassword: (verificationToken, password) =>
     request('/password-reset', { method: 'POST', body: { verificationToken, password } }),
   logout: () => request('/logout', { method: 'POST' }),
+
+  // Deferred phone verification ("Verify later" accounts)
+  verifyPhoneSend: () => request('/verify-phone/send', { method: 'POST' }),
+  verifyPhoneConfirm: (code) => request('/verify-phone/confirm', { method: 'POST', body: { code } }),
 
   addDependent: (name, grade) =>
     request('/dependents', { method: 'POST', body: { name, grade } }),
