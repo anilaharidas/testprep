@@ -5,10 +5,8 @@ Built from `Test Prep Sign-Up Flow.pdf` (Product Spec V1).
 
 ## What it does
 
-- **Roles**: an account belongs to a **Parent** or a **Teacher**. Only the registering
-  adult's details are collected (name, WhatsApp number, password).
-- **Dependents**: children (Parent, max 2) / students (Teacher, max 5) are lightweight
-  profiles — name + grade only.
+- **One account type**: no role, no pre-created profiles. Just a name, WhatsApp
+  number, and password.
 - **WhatsApp OTP** verifies identity at sign-up and password reset. It is **not** used for
   everyday login — the password set at registration is the everyday credential.
 - **Deferred verification**: at registration, after the number is confirmed available,
@@ -20,17 +18,15 @@ Built from `Test Prep Sign-Up Flow.pdf` (Product Spec V1).
   anyone else from registering with that number — to stop a typo'd or squatted number
   staying blocked forever, an account left unverified for 7 days is automatically removed
   by the maintenance sweep, freeing the number back up.
-- **Free-mode caps** are enforced at the "add child / student" step, not at registration,
-  so an account can start with zero dependents.
-- **MCQ practice**: from the dashboard, a parent/teacher picks a dependent, then narrows
-  down subject → chapter → section(s) → difficulty, previews how many questions match,
-  and takes a test with question-by-question navigation, instant grading, and a
-  mistakes-only review. Attempt history is kept per dependent.
-- **Shareable practice links**: a parent/teacher can copy a link per dependent
-  (`/share/<token>`) and send it however they like (WhatsApp, SMS, email, ...) — the
-  student opens it directly and gets the same subject → ... → results flow with no
-  login required. One standing link per dependent; attempts still show up in the
-  parent/teacher's own attempt history.
+- **Practice now**: from the dashboard, pick a grade fresh (no stored profile), then
+  narrow down subject → chapter → section(s) → difficulty, preview how many questions
+  match, and take a test with question-by-question navigation, instant grading, and a
+  mistakes-only review. Your own practice history shows up inline as you go.
+- **Share test link**: generates a link (`/share/<token>`) good for up to 4 completed
+  tests — send it however you like (WhatsApp, SMS, email, ...). Whoever opens it types
+  their own name, then goes through the exact same grade → subject → ... → results flow.
+  A **Shared test results** screen lists every taker's name, score, and a mistakes
+  review, kept separate from your own practice history.
 
 ## MCQ question bank
 
@@ -81,9 +77,10 @@ so explicitly.
 
 Modelled on a reference build (`questa-practice-test.babu-c-appunny.workers.dev`):
 
-1. **Subject** → **Chapter** (single choice, searchable — some subjects have 30+) →
-   **Section(s)** (multi-select; skipped automatically when a chapter has only one) →
-   **Difficulty** (Level 1–5, live count per level, zero-count levels disabled).
+1. **Grade** (no stored profile — picked fresh every time) → **Subject** → **Chapter**
+   (single choice, searchable — some subjects have 30+) → **Section(s)** (multi-select;
+   skipped automatically when a chapter has only one) → **Difficulty** (Level 1–5, live
+   count per level, zero-count levels disabled).
 2. **Test preview** — shows the total matching question count and **Begin Test** /
    **Change Selection** (restarts from Subject).
 3. **Test** — a numbered palette jumps to any question; **Previous**/**Next**; **Submit
@@ -94,23 +91,28 @@ Modelled on a reference build (`questa-practice-test.babu-c-appunny.workers.dev`
    selection, fresh random set), **Choose Another Section** (back to the section step).
 
 API: `GET /api/mcq/subjects`, `GET /api/mcq/chapters`, `GET /api/mcq/sections`,
-`GET /api/mcq/difficulty`, `POST /api/mcq/quiz` (build, no answers included),
+`GET /api/mcq/difficulty` (all take `grade` as an explicit query param — there's no
+stored profile to derive it from), `POST /api/mcq/quiz` (build, no answers included),
 `POST /api/mcq/quiz/grade` (takes the full question-id list + a sparse answers map, so
-unanswered ones are gradeable; records an attempt), `GET /api/mcq/attempts` (history) —
-all under `requireAuth` and scoped to a dependent the logged-in account owns.
+unanswered ones are gradeable; records an attempt), `GET /api/mcq/attempts` (your own
+practice history) — all under `requireAuth`.
 
 ### Shareable practice links
 
-`GET /api/mcq/share-link?dependentId=` (get-or-create) and
-`POST /api/mcq/share-link/regenerate` (rotates the token, invalidating the old link)
-are `requireAuth`'d, same as the routes above. The public side is a parallel,
-unauthenticated route tree at `/api/share/:token/...` (`/`, `/subjects`, `/chapters`,
-`/sections`, `/difficulty`, `POST /quiz`, `POST /quiz/grade`, `/attempts`) — the token
-itself is the authorization, resolved server-side to exactly one dependent
-(`server/worker/mcq/shareLinks.js`); nothing on that side can reach any other
-dependent or the owning account's details. One standing link per dependent
-(`dependent_share_link` table, `UNIQUE` on `dependent_id`) rather than one-shot or
-time-limited, so a parent/teacher can keep re-sharing it for ongoing practice.
+`POST /api/mcq/share-link` (`requireAuth`'d) mints a fresh token good for up to 4
+completed tests — there's no get-or-create or regenerate; sharing again always starts a
+new batch of 4. The public side is a parallel, unauthenticated route tree at
+`/api/share/:token/...` (`/`, `/subjects`, `/chapters`, `/sections`, `/difficulty`,
+`POST /quiz`, `POST /quiz/grade`) — the token itself is the authorization, resolved
+server-side to a `mcq_share_link` row (`server/worker/mcq/shareLinks.js`), not tied to
+any profile. `POST /quiz/grade` takes the taker's self-typed `takerName` and atomically
+claims one of the link's attempt slots (`UPDATE ... WHERE used_attempts < max_attempts`,
+checking `changes > 0`) — only a *completed* submission counts, and once all 4 are used
+the link is dead. `GET /api/mcq/share-results` and `GET /api/mcq/share-results/:id`
+(both `requireAuth`'d) list every attempt taken through any of the account's links —
+name, score, and (via `:id`) the full per-question review, stored as `results_json` on
+`mcq_attempt` at grading time so a past attempt can be reviewed later, not just right
+after taking it.
 
 ## Stack
 
@@ -270,14 +272,14 @@ tokens) is provider-independent and does not change.
 
 ## Flows implemented
 
-1. **Registration** — role → WhatsApp number (availability checked, no OTP sent yet) →
+1. **Registration** — WhatsApp number (availability checked, no OTP sent yet) →
    **Verify now** (request code → OTP verify → name + password) or **Verify later** (name
-   + password immediately, number unverified) → add dependents loop (capped) →
-   dashboard. Already-registered numbers are routed to Login.
+   + password immediately, number unverified) → straight to dashboard. Already-registered
+   numbers are routed to Login.
 2. **Login** — WhatsApp number + password. Unknown number → Register. Repeated wrong
    passwords → temporary lock + Forgot-password.
 3. **Password reset** — Forgot password → number → OTP → new password → back to login.
-4. **Dashboard** — view account, add/remove dependents up to the role cap. An unverified
+4. **Dashboard** — Practice now, Share test link, Shared test results. An unverified
    account shows a "Verification pending" notice that opens the OTP flow on demand.
 
 ## Open questions (from the spec — defaults chosen here)
@@ -286,6 +288,4 @@ tokens) is provider-independent and does not change.
 | -------- | ------------ |
 | Grade range | **6–10** |
 | WhatsApp OTP provider | mock (swappable) |
-| One number = one role, ever | assumed yes (enforced) |
-| Edit/remove a dependent | remove is allowed and **frees a slot** |
 | Incomplete sign-up | OTP verification tokens expire after 24h |

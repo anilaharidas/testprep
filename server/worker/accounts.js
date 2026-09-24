@@ -5,12 +5,6 @@ export async function numberIsRegistered(db, whatsappNumber) {
   return !!(await db.prepare(`SELECT id FROM account WHERE whatsapp_number = ?`).get(whatsappNumber));
 }
 
-export function roleMeta(config, role) {
-  const meta = config.roleCaps[role];
-  if (!meta) throw new ApiError(400, 'bad_role', 'Role must be parent or teacher.');
-  return meta;
-}
-
 async function createSession(db, config, accountId) {
   const token = randomToken();
   await db
@@ -35,9 +29,8 @@ export async function destroySession(db, token) {
 }
 
 /** Finish sign-up: needs a register-purpose verification token for the number. */
-export async function register(ctx, { verificationToken, role, name, password }) {
+export async function register(ctx, { verificationToken, name, password }) {
   const { db, config } = ctx;
-  const meta = roleMeta(config, role);
   const cleanName = String(name || '').trim();
   if (cleanName.length < 2) throw new ApiError(400, 'bad_name', 'Enter a name.');
   if (String(password || '').length < 8) {
@@ -55,10 +48,10 @@ export async function register(ctx, { verificationToken, role, name, password })
 
   const info = await db
     .prepare(
-      `INSERT INTO account (role, name, whatsapp_number, password_hash, phone_verified_at)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO account (name, whatsapp_number, password_hash, phone_verified_at)
+       VALUES (?, ?, ?, ?)`,
     )
-    .run(role, cleanName, whatsappNumber, hash(password), nowIso());
+    .run(cleanName, whatsappNumber, hash(password), nowIso());
 
   const accountId = info.lastInsertRowid;
   return { sessionToken: await createSession(db, config, accountId), accountId };
@@ -70,9 +63,8 @@ export async function register(ctx, { verificationToken, role, name, password })
  * default) until the owner completes verification later via
  * markPhoneVerified — see /api/verify-phone/send + /confirm in app.js.
  */
-export async function registerUnverified(ctx, { role, name, password, whatsappNumber }) {
+export async function registerUnverified(ctx, { name, password, whatsappNumber }) {
   const { db, config } = ctx;
-  const meta = roleMeta(config, role);
   const cleanName = String(name || '').trim();
   if (cleanName.length < 2) throw new ApiError(400, 'bad_name', 'Enter a name.');
   if (String(password || '').length < 8) {
@@ -84,8 +76,8 @@ export async function registerUnverified(ctx, { role, name, password, whatsappNu
   }
 
   const info = await db
-    .prepare(`INSERT INTO account (role, name, whatsapp_number, password_hash) VALUES (?, ?, ?, ?)`)
-    .run(role, cleanName, whatsappNumber, hash(password));
+    .prepare(`INSERT INTO account (name, whatsapp_number, password_hash) VALUES (?, ?, ?)`)
+    .run(cleanName, whatsappNumber, hash(password));
 
   const accountId = info.lastInsertRowid;
   return { sessionToken: await createSession(db, config, accountId), accountId };
@@ -156,67 +148,12 @@ export async function resetPassword(ctx, { verificationToken, password }) {
   await db.prepare(`DELETE FROM session WHERE account_id = ?`).run(account.id);
 }
 
-// ---- dependents -----------------------------------------------------------
-
-export async function dependentsFor(db, accountId) {
-  return db
-    .prepare(`SELECT id, name, grade, created_at FROM dependent WHERE account_id = ? ORDER BY id`)
-    .all(accountId);
-}
-
-export async function accountView(ctx, account) {
-  const { db, config } = ctx;
-  const meta = roleMeta(config, account.role);
-  const dependents = await dependentsFor(db, account.id);
+export function accountView(account) {
   return {
     id: account.id,
-    role: account.role,
     name: account.name,
     whatsappNumber: account.whatsapp_number,
     createdAt: account.created_at,
     phoneVerified: Boolean(account.phone_verified_at),
-    dependentLabel: meta.dependentLabel,
-    dependentLabelPlural: meta.dependentLabelPlural,
-    cap: meta.cap,
-    dependents,
-    canAddDependent: dependents.length < meta.cap,
   };
-}
-
-export async function addDependent(ctx, account, { name, grade }) {
-  const { db, config } = ctx;
-  const meta = roleMeta(config, account.role);
-  const cleanName = String(name || '').trim();
-  if (cleanName.length < 1) throw new ApiError(400, 'bad_name', 'Enter a name.');
-  if (!config.grades.includes(String(grade))) {
-    throw new ApiError(400, 'bad_grade', 'Choose a grade.');
-  }
-  const existing = await dependentsFor(db, account.id);
-  if (existing.length >= meta.cap) {
-    throw new ApiError(409, 'cap_reached', `Free plan supports up to ${meta.cap} ${meta.dependentLabelPlural}.`, {
-      cap: meta.cap,
-    });
-  }
-  await db
-    .prepare(`INSERT INTO dependent (account_id, name, grade) VALUES (?, ?, ?)`)
-    .run(account.id, cleanName, String(grade));
-  const fresh = await db.prepare(`SELECT * FROM account WHERE id = ?`).get(account.id);
-  return accountView(ctx, fresh);
-}
-
-export async function removeDependent(ctx, account, dependentId) {
-  const { db } = ctx;
-  const dep = await getOwnedDependent(db, account, dependentId);
-  await db.prepare(`DELETE FROM dependent WHERE id = ?`).run(dep.id);
-  const fresh = await db.prepare(`SELECT * FROM account WHERE id = ?`).get(account.id);
-  return accountView(ctx, fresh);
-}
-
-/** A dependent row, asserting it belongs to this account. */
-export async function getOwnedDependent(db, account, dependentId) {
-  const dep = await db
-    .prepare(`SELECT * FROM dependent WHERE id = ? AND account_id = ?`)
-    .get(dependentId, account.id);
-  if (!dep) throw new ApiError(404, 'not_found', 'Dependent not found.');
-  return dep;
 }

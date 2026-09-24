@@ -20,8 +20,6 @@ import {
   sessionAccount,
   destroySession,
   accountView,
-  addDependent,
-  removeDependent,
 } from './accounts.js';
 
 // wa.me deep link the requester opens to ask the operator for their code.
@@ -86,12 +84,6 @@ export function createApp() {
     const { config } = c.get('ctx');
     return c.json({
       grades: config.grades,
-      roles: Object.entries(config.roleCaps).map(([role, m]) => ({
-        role,
-        cap: m.cap,
-        dependentLabel: m.dependentLabel,
-        dependentLabelPlural: m.dependentLabelPlural,
-      })),
       otpProvider: config.otpProvider,
       otpLength: config.otp.length,
       otpMode: config.otp.isManual ? 'manual' : 'auto',
@@ -163,11 +155,22 @@ export function createApp() {
   app.post('/api/register', async (c) => {
     const ctx = c.get('ctx');
     const body = await c.req.json().catch(() => ({}));
-    const { verificationToken, role, name, password } = body || {};
-    const { sessionToken } = await register(ctx, { verificationToken, role, name, password });
+    const { verificationToken, name, password } = body || {};
+    const { sessionToken } = await register(ctx, { verificationToken, name, password });
     setCookie(c, SESSION_COOKIE, sessionToken, cookieOpts(ctx.config));
     const account = await sessionAccount(ctx.db, sessionToken);
-    return c.json({ ok: true, account: await accountView(ctx, account) });
+    return c.json({ ok: true, account: accountView(account) });
+  });
+
+  app.post('/api/register-unverified', async (c) => {
+    const ctx = c.get('ctx');
+    const body = await c.req.json().catch(() => ({}));
+    const whatsappNumber = requirePhone(body);
+    const { name, password } = body || {};
+    const { sessionToken } = await registerUnverified(ctx, { name, password, whatsappNumber });
+    setCookie(c, SESSION_COOKIE, sessionToken, cookieOpts(ctx.config));
+    const account = await sessionAccount(ctx.db, sessionToken);
+    return c.json({ ok: true, account: accountView(account) });
   });
 
   app.post('/api/login', async (c) => {
@@ -180,18 +183,7 @@ export function createApp() {
     });
     setCookie(c, SESSION_COOKIE, sessionToken, cookieOpts(ctx.config));
     const account = await sessionAccount(ctx.db, sessionToken);
-    return c.json({ ok: true, account: await accountView(ctx, account) });
-  });
-
-  app.post('/api/register-unverified', async (c) => {
-    const ctx = c.get('ctx');
-    const body = await c.req.json().catch(() => ({}));
-    const whatsappNumber = requirePhone(body);
-    const { role, name, password } = body || {};
-    const { sessionToken } = await registerUnverified(ctx, { role, name, password, whatsappNumber });
-    setCookie(c, SESSION_COOKIE, sessionToken, cookieOpts(ctx.config));
-    const account = await sessionAccount(ctx.db, sessionToken);
-    return c.json({ ok: true, account: await accountView(ctx, account) });
+    return c.json({ ok: true, account: accountView(account) });
   });
 
   app.post('/api/password-reset', async (c) => {
@@ -209,24 +201,10 @@ export function createApp() {
     return c.json({ ok: true });
   });
 
-  // ---- account / dependents ------------------------------------------
+  // ---- account ----------------------------------------------------------
 
   app.get('/api/me', requireAuth(), async (c) => {
-    const ctx = c.get('ctx');
-    return c.json({ ok: true, account: await accountView(ctx, c.get('account')) });
-  });
-
-  app.post('/api/dependents', requireAuth(), async (c) => {
-    const ctx = c.get('ctx');
-    const body = await c.req.json().catch(() => ({}));
-    const account = await addDependent(ctx, c.get('account'), { name: body?.name, grade: body?.grade });
-    return c.json({ ok: true, account });
-  });
-
-  app.delete('/api/dependents/:id', requireAuth(), async (c) => {
-    const ctx = c.get('ctx');
-    const account = await removeDependent(ctx, c.get('account'), Number(c.req.param('id')));
-    return c.json({ ok: true, account });
+    return c.json({ ok: true, account: accountView(c.get('account')) });
   });
 
   // ---- deferred phone verification -------------------------------------
@@ -251,7 +229,7 @@ export function createApp() {
     const code = String(body?.code || '').trim();
     await verifyOtp(ctx, { whatsappNumber: account.whatsapp_number, code, purpose: 'register' });
     const fresh = await markPhoneVerified(ctx.db, account.id);
-    return c.json({ ok: true, account: await accountView(ctx, fresh) });
+    return c.json({ ok: true, account: accountView(fresh) });
   });
 
   return app;

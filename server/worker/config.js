@@ -77,11 +77,6 @@ export function buildConfig(env) {
       .split(',')
       .map((g) => g.trim())
       .filter(Boolean),
-
-    roleCaps: {
-      parent: { dependentLabel: 'child', dependentLabelPlural: 'children', cap: 2 },
-      teacher: { dependentLabel: 'student', dependentLabelPlural: 'students', cap: 5 },
-    },
   };
 
   config.otp.isManual = config.otpProvider === 'manual';

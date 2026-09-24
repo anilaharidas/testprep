@@ -1,44 +1,27 @@
 import { ApiError, randomToken } from '../util.js';
 
-/** Existing standing link for a dependent, or create one if none exists yet. */
-export async function getOrCreateShareToken(db, dependentId) {
-  const existing = await db
-    .prepare(`SELECT token FROM dependent_share_link WHERE dependent_id = ?`)
-    .get(dependentId);
-  if (existing) return existing.token;
-
+/** Mint a fresh share link for an account — good for `max_attempts` completed tests. */
+export async function createShareLink(db, accountId) {
   const token = randomToken();
-  await db
-    .prepare(`INSERT INTO dependent_share_link (token, dependent_id) VALUES (?, ?)`)
-    .run(token, dependentId);
+  await db.prepare(`INSERT INTO mcq_share_link (token, account_id) VALUES (?, ?)`).run(token, accountId);
   return token;
 }
 
-/** Rotate a dependent's link — invalidates the old one, mints a new token. */
-export async function regenerateShareToken(db, dependentId) {
-  const token = randomToken();
-  const updated = await db
-    .prepare(`UPDATE dependent_share_link SET token = ? WHERE dependent_id = ?`)
-    .run(token, dependentId);
-  if (updated.changes === 0) {
-    await db
-      .prepare(`INSERT INTO dependent_share_link (token, dependent_id) VALUES (?, ?)`)
-      .run(token, dependentId);
-  }
-  return token;
+/** Resolve a share token to its link row (account_id, max/used attempts). */
+export async function resolveShareLink(db, token) {
+  const link = await db.prepare(`SELECT * FROM mcq_share_link WHERE token = ?`).get(token);
+  if (!link) throw new ApiError(404, 'link_not_found', 'This practice link is no longer valid.');
+  return link;
 }
 
-/** Resolve a share token to its dependent + the owning account's id. */
-export async function resolveShareToken(db, token) {
-  const row = await db
-    .prepare(
-      `SELECT d.*
-       FROM dependent_share_link l
-       JOIN dependent d ON d.id = l.dependent_id
-       WHERE l.token = ?`,
-    )
-    .get(token);
-  if (!row) throw new ApiError(404, 'link_not_found', 'This practice link is no longer valid.');
-  const { account_id: accountId, ...dependent } = row;
-  return { dependent, accountId };
+/**
+ * Atomically claim one attempt slot — only succeeds while under the cap, so
+ * concurrent submissions near the limit can't overshoot it. Returns false
+ * (no rows changed) if the link is already exhausted.
+ */
+export async function consumeShareLinkAttempt(db, token) {
+  const res = await db
+    .prepare(`UPDATE mcq_share_link SET used_attempts = used_attempts + 1 WHERE token = ? AND used_attempts < max_attempts`)
+    .run(token);
+  return res.changes > 0;
 }
