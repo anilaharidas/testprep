@@ -12,9 +12,8 @@ import {
   fullNumber,
 } from '../ui.jsx';
 import OtpStep from '../OtpStep.jsx';
-import DependentForm from '../DependentForm.jsx';
 
-const STEPS = 5;
+const STEPS = 3;
 
 export default function Register() {
   const cfg = useAppConfig();
@@ -22,7 +21,6 @@ export default function Register() {
   const nav = useNavigate();
 
   const [step, setStep] = useState(0);
-  const [role, setRole] = useState(null);
   const [country, setCountry] = useState('+91');
   const [local, setLocal] = useState('');
   const [sendMeta, setSendMeta] = useState(null);
@@ -30,7 +28,6 @@ export default function Register() {
   const [verifiedNumber, setVerifiedNumber] = useState(null);
   const [verificationToken, setVerificationToken] = useState(null);
   const [deferVerification, setDeferVerification] = useState(false);
-  const [account, setLocalAccount] = useState(null);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -53,7 +50,7 @@ export default function Register() {
 
   const number = fullNumber(country, local);
 
-  // Step 1: availability check only — no OTP challenge created yet, so
+  // Step 0: availability check only — no OTP challenge created yet, so
   // choosing "Verify later" next generates no OTP activity at all.
   async function checkNumber(e) {
     e.preventDefault();
@@ -86,7 +83,7 @@ export default function Register() {
       if (cfg.otpMode === 'manual') {
         setAwaitingWhatsapp(true);
       } else {
-        setStep(2);
+        setStep(1);
       }
     } catch (err) {
       setError(err.message || 'Could not send the code.');
@@ -98,13 +95,13 @@ export default function Register() {
   function chooseVerifyLater() {
     setDeferVerification(true);
     setChoosingVerify(false);
-    setStep(3);
+    setStep(2);
   }
 
   function openWhatsAppAndContinue() {
     const url = manualUrl || cfg.manualWhatsappUrl;
     if (url) window.open(url, '_blank', 'noopener');
-    setStep(2);
+    setStep(1);
   }
 
   async function submitProfile(e) {
@@ -121,11 +118,13 @@ export default function Register() {
     setBusy(true);
     setError(null);
     try {
-      const res = deferVerification
-        ? await api.registerUnverified({ role, name, password, whatsappNumber: verifiedNumber })
-        : await api.register({ verificationToken, role, name, password });
-      setLocalAccount(res.account);
-      setStep(4);
+      if (deferVerification) {
+        await api.registerUnverified({ name, password, whatsappNumber: verifiedNumber });
+      } else {
+        await api.register({ verificationToken, name, password });
+      }
+      await refresh();
+      nav('/dashboard', { replace: true });
     } catch (err) {
       setError(err.message || 'Could not create the account.');
       if (err instanceof ApiError && (err.code === 'number_taken' || err.code === 'verification_invalid')) {
@@ -137,55 +136,12 @@ export default function Register() {
     }
   }
 
-  async function addDependent(name, grade) {
-    const res = await api.addDependent(name, grade);
-    setLocalAccount(res.account);
-  }
-
-  async function finish() {
-    await refresh();
-    nav('/dashboard', { replace: true });
-  }
-
   return (
     <Card>
       <Stepper count={STEPS} current={step} />
 
-      {/* Step 0 — role */}
-      {step === 0 && (
-        <>
-          <h1>Who is this account for?</h1>
-          <p className="sub">
-            This is permanent — there's no role switch later. Pick the one that matches how you'll
-            use the app.
-          </p>
-          <div className="choice-grid">
-            {cfg.roles.map((r) => (
-              <button
-                key={r.role}
-                type="button"
-                className={`choice ${role === r.role ? 'selected' : ''}`}
-                onClick={() => setRole(r.role)}
-              >
-                <div className="choice-title">{r.role === 'parent' ? 'Parent' : 'Teacher'}</div>
-                <div className="choice-desc">
-                  Add up to {r.cap} {r.dependentLabelPlural} as profiles under your account.
-                </div>
-              </button>
-            ))}
-          </div>
-          <div style={{ height: 8 }} />
-          <button className="btn" disabled={!role} onClick={() => setStep(1)}>
-            Continue
-          </button>
-          <p className="foot-links">
-            Already registered? <Link to="/login">Log in</Link>
-          </p>
-        </>
-      )}
-
-      {/* Step 1 — phone */}
-      {step === 1 && !choosingVerify && !awaitingWhatsapp && (
+      {/* Step 0 — phone */}
+      {step === 0 && !choosingVerify && !awaitingWhatsapp && (
         <form onSubmit={checkNumber}>
           <h1>Your WhatsApp number</h1>
           <p className="sub">
@@ -217,16 +173,14 @@ export default function Register() {
           <button className="btn" type="submit" disabled={busy || local.length < 6}>
             {busy ? 'Checking…' : 'Continue'}
           </button>
-          <div className="row-between" style={{ marginTop: 14 }}>
-            <button type="button" className="btn ghost" onClick={() => setStep(0)}>
-              ← Back
-            </button>
-          </div>
+          <p className="foot-links">
+            Already registered? <Link to="/login">Log in</Link>
+          </p>
         </form>
       )}
 
-      {/* Step 1b — number confirmed free: choose when to verify */}
-      {step === 1 && choosingVerify && (
+      {/* Step 0b — number confirmed free: choose when to verify */}
+      {step === 0 && choosingVerify && (
         <>
           <h1>When would you like to verify?</h1>
           <p className="sub">
@@ -257,8 +211,8 @@ export default function Register() {
         </>
       )}
 
-      {/* Step 1c — Verify now, manual mode: code already sent, ready to open WhatsApp */}
-      {step === 1 && awaitingWhatsapp && (
+      {/* Step 0c — Verify now, manual mode: code already sent, ready to open WhatsApp */}
+      {step === 0 && awaitingWhatsapp && (
         <>
           <h1>Request your code</h1>
           <p className="sub">
@@ -282,8 +236,8 @@ export default function Register() {
         </>
       )}
 
-      {/* Step 2 — OTP */}
-      {step === 2 && (
+      {/* Step 1 — OTP */}
+      {step === 1 && (
         <OtpStep
           whatsappNumber={verifiedNumber}
           otpLength={cfg.otpLength}
@@ -295,14 +249,14 @@ export default function Register() {
           onVerified={(res) => {
             setVerificationToken(res.verificationToken);
             setError(null);
-            setStep(3);
+            setStep(2);
           }}
-          onBack={() => setStep(1)}
+          onBack={() => setStep(0)}
         />
       )}
 
-      {/* Step 3 — name + password */}
-      {step === 3 && (
+      {/* Step 2 — name + password */}
+      {step === 2 && (
         <form onSubmit={submitProfile}>
           <h1>Set up your login</h1>
           <p className="sub">
@@ -333,54 +287,6 @@ export default function Register() {
           </button>
         </form>
       )}
-
-      {/* Step 4 — dependents add-loop */}
-      {step === 4 && account && (
-        <>
-          <h1>
-            Add {account.dependentLabelPlural}
-            <span style={{ marginLeft: 8 }} className="pill">
-              {account.dependents.length} / {account.cap}
-            </span>
-          </h1>
-          <p className="sub">
-            Each one needs just a name and grade. You can also skip this and add them later from your
-            dashboard.
-          </p>
-
-          {account.dependents.length > 0 && (
-            <ul className="dep-list">
-              {account.dependents.map((d) => (
-                <li key={d.id}>
-                  <span className="dep-name">{d.name}</span>
-                  <span className="dep-grade">Grade {d.grade}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {account.canAddDependent ? (
-            <DependentForm
-              grades={cfg.grades}
-              label={cap(account.dependentLabel)}
-              onAdd={addDependent}
-              submitText={`Add ${account.dependentLabel}`}
-            />
-          ) : (
-            <Notice kind="info">
-              Free plan supports up to {account.cap} {account.dependentLabelPlural}. You've added them
-              all — existing profiles stay fully usable.
-            </Notice>
-          )}
-
-          <div className="divider" />
-          <button className="btn" onClick={finish}>
-            Go to dashboard
-          </button>
-        </>
-      )}
     </Card>
   );
 }
-
-const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);

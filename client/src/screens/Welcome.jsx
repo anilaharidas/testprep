@@ -5,10 +5,10 @@ export default function Welcome() {
   const nav = useNavigate();
   return (
     <Card>
-      <h1>Get your students test-ready</h1>
+      <h1>Get test-ready</h1>
       <p className="sub">
-        A questionnaire app for high-school test prep. Accounts are for a parent or a teacher —
-        your children or students are added as simple profiles. Free to use.
+        A questionnaire app for high-school test prep. Practice yourself, or share a test link
+        with your students or children — no profiles to set up. Free to use.
       </p>
       <button className="btn" onClick={() => nav('/register')}>
         Create an account

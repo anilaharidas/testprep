@@ -3,27 +3,31 @@ import { Link } from 'react-router-dom';
 import { Card, Notice } from './ui.jsx';
 
 /**
- * The whole subject -> chapter -> section -> difficulty -> preview -> quiz ->
- * result -> review flow, shared by the authenticated Practice screen
- * (screens/Quiz.jsx) and the public shared-link screen (screens/SharedQuiz.jsx).
- * Those two only differ in *where the dependent/API calls come from* — a logged-in
- * session + dependentId vs. a share token — so this component takes that as props
- * instead of knowing about either.
+ * The whole grade -> subject -> chapter -> section -> difficulty -> preview ->
+ * quiz -> result -> review flow, shared by the authenticated Practice screen
+ * (screens/PracticeNow.jsx) and the public shared-link screen
+ * (screens/SharedQuiz.jsx). Those two only differ in *where the API calls go* —
+ * a logged-in session vs. a share token — so this component takes that as props
+ * instead of knowing about either. There's no stored profile to read a grade
+ * from, so picking one is always the first step.
  *
- * @param {string} title - breadcrumb header, e.g. "Name · Grade 8"
+ * @param {string} title - breadcrumb header (e.g. account name, or the typed taker name)
  * @param {string|null} backLink - route to link "← Back to dashboard" to, or null
  *   to hide that link (the public flow has no dashboard to go back to)
+ * @param {string[]} grades - selectable grades for the first step
  * @param {object} calls - { subjects, chapters, sections, difficulty, startQuiz,
- *   gradeQuiz, attempts }, each already bound to the right dependentId/token
+ *   gradeQuiz, attempts? }, each (bar attempts) taking `grade` as its first
+ *   argument. `attempts` is optional — omit it to hide the recent-practice list
+ *   (the public share flow has no self-history to show).
  */
-export default function QuizFlow({ title, backLink, calls }) {
-  // step: subject -> chapter -> section (skippable) -> difficulty -> preview
-  //       -> quiz -> result -> review
-  const [step, setStep] = useState('subject');
-  const [loading, setLoading] = useState(true);
+export default function QuizFlow({ title, backLink, grades, calls }) {
+  // step: grade -> subject -> chapter -> section (skippable) -> difficulty ->
+  //       preview -> quiz -> result -> review
+  const [step, setStep] = useState('grade');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  const [grade, setGrade] = useState(null);
   const [subjects, setSubjects] = useState([]);
   const [history, setHistory] = useState([]);
   const [subject, setSubject] = useState('');
@@ -47,20 +51,15 @@ export default function QuizFlow({ title, backLink, calls }) {
   const [result, setResult] = useState(null);
   const [mistakeIdx, setMistakeIdx] = useState(0);
 
-  // ---- initial load: subjects + history --------------------------------
+  // ---- initial load: recent history, if this caller has any -------------
 
   useEffect(() => {
+    if (!calls.attempts) return;
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    Promise.all([calls.subjects(), calls.attempts()])
-      .then(([subRes, histRes]) => {
-        if (cancelled) return;
-        setSubjects(subRes.subjects);
-        setHistory(histRes.attempts);
-      })
-      .catch((err) => !cancelled && setError(err.message || 'Could not load subjects.'))
-      .finally(() => !cancelled && setLoading(false));
+    calls
+      .attempts()
+      .then((res) => !cancelled && setHistory(res.attempts))
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -69,6 +68,20 @@ export default function QuizFlow({ title, backLink, calls }) {
 
   // ---- step transitions --------------------------------------------------
 
+  function pickGrade(g) {
+    setBusy(true);
+    setError(null);
+    calls
+      .subjects(g)
+      .then((res) => {
+        setGrade(g);
+        setSubjects(res.subjects);
+        setStep('subject');
+      })
+      .catch((err) => setError(err.message || 'Could not load subjects.'))
+      .finally(() => setBusy(false));
+  }
+
   function pickSubject(s) {
     setSubject(s);
     setChapterFilter('');
@@ -76,7 +89,7 @@ export default function QuizFlow({ title, backLink, calls }) {
     setBusy(true);
     setError(null);
     calls
-      .chapters(s)
+      .chapters(grade, s)
       .then((res) => {
         setChapters(res.chapters);
         setStep('chapter');
@@ -91,7 +104,7 @@ export default function QuizFlow({ title, backLink, calls }) {
     setBusy(true);
     setError(null);
     calls
-      .sections(subject, ch.chapterNo, ch.chapter)
+      .sections(grade, subject, ch.chapterNo, ch.chapter)
       .then((res) => {
         if (res.sections.length <= 1) {
           // Nothing meaningful to choose — go straight to difficulty.
@@ -121,7 +134,7 @@ export default function QuizFlow({ title, backLink, calls }) {
     setError(null);
     setDifficulty(null);
     calls
-      .difficulty(subject, ch.chapterNo, ch.chapter, secs)
+      .difficulty(grade, subject, ch.chapterNo, ch.chapter, secs)
       .then((res) => {
         setLevels(res.levels);
         setStep('difficulty');
@@ -139,6 +152,7 @@ export default function QuizFlow({ title, backLink, calls }) {
     setError(null);
     try {
       const res = await calls.startQuiz(
+        grade,
         subject,
         chosenChapter.chapterNo,
         chosenChapter.chapter,
@@ -167,6 +181,7 @@ export default function QuizFlow({ title, backLink, calls }) {
     setError(null);
     try {
       const res = await calls.gradeQuiz(
+        grade,
         quiz.subject,
         quiz.chapterNo,
         quiz.questions.map((q) => q.id),
@@ -175,8 +190,10 @@ export default function QuizFlow({ title, backLink, calls }) {
       setResult(res);
       setMistakeIdx(0);
       setStep('result');
-      const hist = await calls.attempts().catch(() => null);
-      if (hist) setHistory(hist.attempts);
+      if (calls.attempts) {
+        const hist = await calls.attempts().catch(() => null);
+        if (hist) setHistory(hist.attempts);
+      }
     } catch (err) {
       setError(err.message || 'Could not submit the test.');
     } finally {
@@ -195,6 +212,7 @@ export default function QuizFlow({ title, backLink, calls }) {
     setError(null);
     try {
       const res = await calls.startQuiz(
+        grade,
         subject,
         chosenChapter.chapterNo,
         chosenChapter.chapter,
@@ -235,37 +253,16 @@ export default function QuizFlow({ title, backLink, calls }) {
 
   // ---- render -------------------------------------------------------------
 
-  if (loading) {
-    return (
-      <Card>
-        <div className="center-loading">Loading…</div>
-      </Card>
-    );
-  }
-
-  if (!subjects.length) {
-    return (
-      <Card>
-        <h1>No questions yet</h1>
-        <p className="sub">{error || "There's no question bank loaded for this grade yet."}</p>
-        {backLink && (
-          <Link className="btn-link" to={backLink}>
-            ← Back to dashboard
-          </Link>
-        )}
-      </Card>
-    );
-  }
-
   const filteredChapters = chapters
     .map((c, i) => ({ ...c, idx: i }))
     .filter((c) => c.chapter.toLowerCase().includes(chapterFilter.toLowerCase()));
 
   return (
     <Card>
-      {step !== 'quiz' && step !== 'review' && (
+      {step !== 'quiz' && step !== 'review' && step !== 'grade' && (
         <p className="quiz-breadcrumb">
           {title}
+          {grade ? ` · Grade ${grade}` : ''}
           {subject ? ` · ${subject}` : ''}
           {chosenChapter ? ` · ${chosenChapter.chapterNo ? `${chosenChapter.chapterNo}. ` : ''}${chosenChapter.chapter}` : ''}
         </p>
@@ -273,9 +270,28 @@ export default function QuizFlow({ title, backLink, calls }) {
 
       {error && <Notice kind="error">{error}</Notice>}
 
+      {step === 'grade' && (
+        <>
+          <h1>Choose a grade</h1>
+          <div className="choice-grid">
+            {grades.map((g) => (
+              <button key={g} type="button" className="choice" disabled={busy} onClick={() => pickGrade(g)}>
+                <div className="choice-title">Grade {g}</div>
+              </button>
+            ))}
+          </div>
+          {backLink && (
+            <p className="foot-links">
+              <Link to={backLink}>← Back to dashboard</Link>
+            </p>
+          )}
+        </>
+      )}
+
       {step === 'subject' && (
         <>
           <h1>Choose a subject</h1>
+          {subjects.length === 0 && <p className="muted">No questions available for this grade yet.</p>}
           <div className="choice-grid">
             {subjects.map((s) => (
               <button
@@ -313,11 +329,11 @@ export default function QuizFlow({ title, backLink, calls }) {
             </>
           )}
 
-          {backLink && (
-            <p className="foot-links">
-              <Link to={backLink}>← Back to dashboard</Link>
-            </p>
-          )}
+          <p className="foot-links">
+            <button type="button" className="btn-link" onClick={() => setStep('grade')}>
+              ← Change grade
+            </button>
+          </p>
         </>
       )}
 
@@ -467,7 +483,7 @@ export default function QuizFlow({ title, backLink, calls }) {
       {step === 'result' && result && (
         <QuizResult
           result={result}
-          dependentName={quiz.dependentName}
+          title={title}
           backLink={backLink}
           onReview={() => {
             setMistakeIdx(0);
@@ -637,7 +653,7 @@ function SubmitConfirm({ answered, total, busy, onConfirm, onCancel }) {
   );
 }
 
-function QuizResult({ result, dependentName, backLink, onReview, onRetry, onChooseAnotherSection, busy }) {
+function QuizResult({ result, title, backLink, onReview, onRetry, onChooseAnotherSection, busy }) {
   const pct = result.total ? Math.round((result.score / result.total) * 100) : 0;
   const mistakeCount = result.results.filter((r) => r.status !== 'correct').length;
   return (
@@ -648,7 +664,7 @@ function QuizResult({ result, dependentName, backLink, onReview, onRetry, onChoo
           {result.score}/{result.total}
         </div>
         <div className="muted">
-          {dependentName} scored {pct}% — {result.score} mark{result.score === 1 ? '' : 's'}, 1 per
+          {title} scored {pct}% — {result.score} mark{result.score === 1 ? '' : 's'}, 1 per
           correct answer, no negative marking.
         </div>
       </div>
@@ -675,7 +691,12 @@ function QuizResult({ result, dependentName, backLink, onReview, onRetry, onChoo
   );
 }
 
-function MistakeReview({ result, mistakeIdx, setMistakeIdx, onBack }) {
+/**
+ * Question-by-question review, mistakes/unanswered only by default. Exported
+ * so screens/ShareResults.jsx can reuse the exact same UI for reviewing a past
+ * attempt (fed from stored `results_json` instead of fresh in-memory state).
+ */
+export function MistakeReview({ result, mistakeIdx, setMistakeIdx, onBack }) {
   const mistakes = result.results.filter((r) => r.status !== 'correct');
   const r = mistakes[mistakeIdx];
   if (!r) {

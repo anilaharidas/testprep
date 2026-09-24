@@ -6,7 +6,8 @@ import Register from './screens/Register.jsx';
 import Login from './screens/Login.jsx';
 import Forgot from './screens/Forgot.jsx';
 import Dashboard from './screens/Dashboard.jsx';
-import Quiz from './screens/Quiz.jsx';
+import PracticeNow from './screens/PracticeNow.jsx';
+import ShareResults from './screens/ShareResults.jsx';
 import SharedQuiz from './screens/SharedQuiz.jsx';
 import OperatorPanel from './screens/OperatorPanel.jsx';
 
@@ -41,7 +42,8 @@ function MainApp() {
         <Route path="/login" element={account ? <Navigate to="/dashboard" replace /> : <Login />} />
         <Route path="/forgot" element={account ? <Navigate to="/dashboard" replace /> : <Forgot />} />
         <Route path="/dashboard" element={account ? <Dashboard /> : <Navigate to="/" replace />} />
-        <Route path="/quiz/:dependentId" element={account ? <Quiz /> : <Navigate to="/" replace />} />
+        <Route path="/practice" element={account ? <PracticeNow /> : <Navigate to="/" replace />} />
+        <Route path="/results" element={account ? <ShareResults /> : <Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Shell>

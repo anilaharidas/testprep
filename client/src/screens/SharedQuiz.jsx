@@ -1,18 +1,24 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api, ApiError } from '../api.js';
-import { Shell, Card, Notice } from '../ui.jsx';
+import { useAppConfig } from '../useAppConfig.js';
+import { Shell, Card, Notice, Field } from '../ui.jsx';
 import QuizFlow from '../QuizFlow.jsx';
 
 /**
- * Public practice-link screen — opened directly by a student, no login. The
- * token in the URL identifies exactly one dependent (see server/worker/mcq/
- * shareLinks.js); nothing here can reach any other dependent or account data.
+ * Public practice-link screen — opened directly, no login. The token is good
+ * for a capped number of completed tests (see server/worker/mcq/shareLinks.js);
+ * whoever opens it identifies themselves by typing a name, then picks their own
+ * grade/subject/chapter/section/difficulty, same as the account-holder's own
+ * Practice Now flow.
  */
 export default function SharedQuiz() {
   const { token } = useParams();
+  const cfg = useAppConfig();
   const [info, setInfo] = useState(null);
   const [error, setError] = useState(null);
+  const [name, setName] = useState('');
+  const [takerName, setTakerName] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,7 +49,7 @@ export default function SharedQuiz() {
     );
   }
 
-  if (!info) {
+  if (!info || !cfg) {
     return (
       <Shell>
         <Card>
@@ -53,22 +59,63 @@ export default function SharedQuiz() {
     );
   }
 
+  if (info.attemptsLeft <= 0) {
+    return (
+      <Shell>
+        <Card>
+          <h1>No attempts left</h1>
+          <p className="sub">This practice link has already been used its maximum number of times. Ask for a new link.</p>
+        </Card>
+      </Shell>
+    );
+  }
+
+  if (!takerName) {
+    return (
+      <Shell>
+        <Card>
+          <h1>Enter your name</h1>
+          <p className="sub">This is shown to whoever shared this link, alongside your score.</p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (name.trim()) setTakerName(name.trim());
+            }}
+          >
+            <Field label="Your name">
+              <input
+                autoFocus
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Full name"
+              />
+            </Field>
+            <button className="btn" type="submit" disabled={!name.trim()}>
+              Continue
+            </button>
+          </form>
+        </Card>
+      </Shell>
+    );
+  }
+
   return (
     <Shell>
       <QuizFlow
-        title={`${info.dependentName} · Grade ${info.grade}`}
+        title={takerName}
         backLink={null}
+        grades={cfg.grades}
         calls={{
-          subjects: () => api.shareSubjects(token),
-          chapters: (subject) => api.shareChapters(token, subject),
-          sections: (subject, chapterNo, chapter) => api.shareSections(token, subject, chapterNo, chapter),
-          difficulty: (subject, chapterNo, chapter, sectionNumbers) =>
-            api.shareDifficulty(token, subject, chapterNo, chapter, sectionNumbers),
-          startQuiz: (subject, chapterNo, chapter, sectionNumbers, difficulty) =>
-            api.shareStartQuiz(token, subject, chapterNo, chapter, sectionNumbers, difficulty),
-          gradeQuiz: (subject, chapterNo, questionIds, answers) =>
-            api.shareGradeQuiz(token, subject, chapterNo, questionIds, answers),
-          attempts: () => api.shareAttempts(token),
+          subjects: (grade) => api.shareSubjects(token, grade),
+          chapters: (grade, subject) => api.shareChapters(token, grade, subject),
+          sections: (grade, subject, chapterNo, chapter) =>
+            api.shareSections(token, grade, subject, chapterNo, chapter),
+          difficulty: (grade, subject, chapterNo, chapter, sectionNumbers) =>
+            api.shareDifficulty(token, grade, subject, chapterNo, chapter, sectionNumbers),
+          startQuiz: (grade, subject, chapterNo, chapter, sectionNumbers, difficulty) =>
+            api.shareStartQuiz(token, grade, subject, chapterNo, chapter, sectionNumbers, difficulty),
+          gradeQuiz: (grade, subject, chapterNo, questionIds, answers) =>
+            api.shareGradeQuiz(token, takerName, grade, subject, chapterNo, questionIds, answers),
         }}
       />
     </Shell>

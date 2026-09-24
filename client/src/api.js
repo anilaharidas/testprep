@@ -51,10 +51,6 @@ export const api = {
   verifyPhoneSend: () => request('/verify-phone/send', { method: 'POST' }),
   verifyPhoneConfirm: (code) => request('/verify-phone/confirm', { method: 'POST', body: { code } }),
 
-  addDependent: (name, grade) =>
-    request('/dependents', { method: 'POST', body: { name, grade } }),
-  removeDependent: (id) => request(`/dependents/${id}`, { method: 'DELETE' }),
-
   // operator panel
   adminLogin: (slug, password) =>
     request('/admin/login', { method: 'POST', body: { slug, password } }),
@@ -62,65 +58,66 @@ export const api = {
   adminSession: () => request('/admin/session'),
   adminRequests: () => request('/admin/requests'),
 
-  // MCQ practice
-  mcqSubjects: (dependentId) => request(`/mcq/subjects?dependentId=${dependentId}`),
-  mcqChapters: (dependentId, subject) =>
-    request(`/mcq/chapters?dependentId=${dependentId}&subject=${encodeURIComponent(subject)}`),
-  mcqSections: (dependentId, subject, chapterNo, chapter) =>
+  // MCQ practice (self, authenticated) — grade is picked fresh each session,
+  // not tied to any stored profile.
+  mcqSubjects: (grade) => request(`/mcq/subjects?grade=${encodeURIComponent(grade)}`),
+  mcqChapters: (grade, subject) =>
+    request(`/mcq/chapters?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}`),
+  mcqSections: (grade, subject, chapterNo, chapter) =>
     request(
-      `/mcq/sections?dependentId=${dependentId}&subject=${encodeURIComponent(subject)}` +
+      `/mcq/sections?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}` +
         `&chapterNo=${encodeURIComponent(chapterNo)}&chapter=${encodeURIComponent(chapter)}`,
     ),
-  mcqDifficulty: (dependentId, subject, chapterNo, chapter, sectionNumbers) =>
+  mcqDifficulty: (grade, subject, chapterNo, chapter, sectionNumbers) =>
     request(
-      `/mcq/difficulty?dependentId=${dependentId}&subject=${encodeURIComponent(subject)}` +
+      `/mcq/difficulty?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}` +
         `&chapterNo=${encodeURIComponent(chapterNo)}&chapter=${encodeURIComponent(chapter)}` +
         `&sectionNumbers=${encodeURIComponent((sectionNumbers || []).join(','))}`,
     ),
-  mcqStartQuiz: (dependentId, subject, chapterNo, chapter, sectionNumbers, difficulty) =>
+  mcqStartQuiz: (grade, subject, chapterNo, chapter, sectionNumbers, difficulty) =>
     request('/mcq/quiz', {
       method: 'POST',
-      body: { dependentId, subject, chapterNo, chapter, sectionNumbers, difficulty },
+      body: { grade, subject, chapterNo, chapter, sectionNumbers, difficulty },
     }),
-  mcqGradeQuiz: (dependentId, subject, chapterNo, questionIds, answers) =>
+  mcqGradeQuiz: (grade, subject, chapterNo, questionIds, answers) =>
     request('/mcq/quiz/grade', {
       method: 'POST',
-      body: { dependentId, subject, chapterNo, questionIds, answers },
+      body: { grade, subject, chapterNo, questionIds, answers },
     }),
-  mcqAttempts: (dependentId) => request(`/mcq/attempts?dependentId=${dependentId}`),
+  mcqAttempts: () => request('/mcq/attempts'),
 
-  // Shareable practice link (teacher/parent side)
-  mcqShareLink: (dependentId) => request(`/mcq/share-link?dependentId=${dependentId}`),
-  mcqShareLinkRegenerate: (dependentId) =>
-    request('/mcq/share-link/regenerate', { method: 'POST', body: { dependentId } }),
+  // Shareable practice link (teacher/parent side) — always mints a fresh
+  // token, good for up to 4 completed tests.
+  mcqShareLink: () => request('/mcq/share-link', { method: 'POST' }),
+  mcqShareResults: () => request('/mcq/share-results'),
+  mcqShareResultDetail: (id) => request(`/mcq/share-results/${id}`),
 
-  // Public practice link (student side, no login) — same shapes as the mcqXxx
-  // methods above, minus dependentId (the token in the URL identifies the
-  // dependent instead).
+  // Public practice link (no login) — same shapes as the mcqXxx methods
+  // above, minus grade coming from a profile: the taker picks it themselves,
+  // and names themselves when grading.
   shareInfo: (token) => request(`/share/${token}`),
-  shareSubjects: (token) => request(`/share/${token}/subjects`),
-  shareChapters: (token, subject) =>
-    request(`/share/${token}/chapters?subject=${encodeURIComponent(subject)}`),
-  shareSections: (token, subject, chapterNo, chapter) =>
+  shareSubjects: (token, grade) => request(`/share/${token}/subjects?grade=${encodeURIComponent(grade)}`),
+  shareChapters: (token, grade, subject) =>
+    request(`/share/${token}/chapters?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}`),
+  shareSections: (token, grade, subject, chapterNo, chapter) =>
     request(
-      `/share/${token}/sections?subject=${encodeURIComponent(subject)}` +
+      `/share/${token}/sections?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}` +
         `&chapterNo=${encodeURIComponent(chapterNo)}&chapter=${encodeURIComponent(chapter)}`,
     ),
-  shareDifficulty: (token, subject, chapterNo, chapter, sectionNumbers) =>
+  shareDifficulty: (token, grade, subject, chapterNo, chapter, sectionNumbers) =>
     request(
-      `/share/${token}/difficulty?subject=${encodeURIComponent(subject)}` +
+      `/share/${token}/difficulty?grade=${encodeURIComponent(grade)}&subject=${encodeURIComponent(subject)}` +
         `&chapterNo=${encodeURIComponent(chapterNo)}&chapter=${encodeURIComponent(chapter)}` +
         `&sectionNumbers=${encodeURIComponent((sectionNumbers || []).join(','))}`,
     ),
-  shareStartQuiz: (token, subject, chapterNo, chapter, sectionNumbers, difficulty) =>
+  shareStartQuiz: (token, grade, subject, chapterNo, chapter, sectionNumbers, difficulty) =>
     request(`/share/${token}/quiz`, {
       method: 'POST',
-      body: { subject, chapterNo, chapter, sectionNumbers, difficulty },
+      body: { grade, subject, chapterNo, chapter, sectionNumbers, difficulty },
     }),
-  shareGradeQuiz: (token, subject, chapterNo, questionIds, answers) =>
+  shareGradeQuiz: (token, takerName, grade, subject, chapterNo, questionIds, answers) =>
     request(`/share/${token}/quiz/grade`, {
       method: 'POST',
-      body: { subject, chapterNo, questionIds, answers },
+      body: { takerName, grade, subject, chapterNo, questionIds, answers },
     }),
-  shareAttempts: (token) => request(`/share/${token}/attempts`),
 };

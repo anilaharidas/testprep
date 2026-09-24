@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware.js';
-import { getOwnedDependent } from '../accounts.js';
 import {
   subjectsForGrade,
   chaptersFor,
@@ -8,41 +7,43 @@ import {
   difficultyBreakdown,
   buildQuiz,
   gradeQuiz,
-  attemptsFor,
+  selfAttempts,
+  shareResultsFor,
+  attemptDetail,
 } from './service.js';
-import { getOrCreateShareToken, regenerateShareToken } from './shareLinks.js';
+import { createShareLink } from './shareLinks.js';
 
 export const mcqApp = new Hono();
 mcqApp.use('*', requireAuth());
 
 mcqApp.get('/subjects', async (c) => {
   const { db } = c.get('ctx');
-  const dependent = await getOwnedDependent(db, c.get('account'), Number(c.req.query('dependentId')));
-  return c.json({ ok: true, grade: dependent.grade, subjects: await subjectsForGrade(db, dependent.grade) });
+  const grade = String(c.req.query('grade') || '');
+  return c.json({ ok: true, subjects: await subjectsForGrade(db, grade) });
 });
 
 mcqApp.get('/chapters', async (c) => {
   const { db } = c.get('ctx');
-  const dependent = await getOwnedDependent(db, c.get('account'), Number(c.req.query('dependentId')));
+  const grade = String(c.req.query('grade') || '');
   const subject = String(c.req.query('subject') || '');
-  return c.json({ ok: true, chapters: await chaptersFor(db, dependent.grade, subject) });
+  return c.json({ ok: true, chapters: await chaptersFor(db, grade, subject) });
 });
 
 mcqApp.get('/sections', async (c) => {
   const { db } = c.get('ctx');
-  const dependent = await getOwnedDependent(db, c.get('account'), Number(c.req.query('dependentId')));
+  const grade = c.req.query('grade');
   const subject = c.req.query('subject');
   const chapterNo = c.req.query('chapterNo');
   const chapter = c.req.query('chapter');
   return c.json({
     ok: true,
-    sections: await sectionsFor(db, { grade: dependent.grade, subject: String(subject || ''), chapterNo, chapter }),
+    sections: await sectionsFor(db, { grade: String(grade || ''), subject: String(subject || ''), chapterNo, chapter }),
   });
 });
 
 mcqApp.get('/difficulty', async (c) => {
   const { db } = c.get('ctx');
-  const dependent = await getOwnedDependent(db, c.get('account'), Number(c.req.query('dependentId')));
+  const grade = c.req.query('grade');
   const subject = c.req.query('subject');
   const chapterNo = c.req.query('chapterNo');
   const chapter = c.req.query('chapter');
@@ -51,7 +52,7 @@ mcqApp.get('/difficulty', async (c) => {
   return c.json({
     ok: true,
     levels: await difficultyBreakdown(db, {
-      grade: dependent.grade,
+      grade: String(grade || ''),
       subject: String(subject || ''),
       chapterNo,
       chapter,
@@ -62,11 +63,9 @@ mcqApp.get('/difficulty', async (c) => {
 
 mcqApp.post('/quiz', async (c) => {
   const { db } = c.get('ctx');
-  const account = c.get('account');
   const body = await c.req.json().catch(() => ({}));
-  const { dependentId, subject, chapterNo, chapter, sectionNumbers, difficulty } = body || {};
-  const dependent = await getOwnedDependent(db, account, Number(dependentId));
-  const quiz = await buildQuiz(db, { dependent, subject, chapterNo, chapter, sectionNumbers, difficulty });
+  const { grade, subject, chapterNo, chapter, sectionNumbers, difficulty } = body || {};
+  const quiz = await buildQuiz(db, { grade, subject, chapterNo, chapter, sectionNumbers, difficulty });
   return c.json({ ok: true, ...quiz });
 });
 
@@ -74,11 +73,10 @@ mcqApp.post('/quiz/grade', async (c) => {
   const { db } = c.get('ctx');
   const account = c.get('account');
   const body = await c.req.json().catch(() => ({}));
-  const { dependentId, subject, chapterNo, questionIds, answers } = body || {};
-  const dependent = await getOwnedDependent(db, account, Number(dependentId));
+  const { grade, subject, chapterNo, questionIds, answers } = body || {};
   const result = await gradeQuiz(db, {
-    dependent,
     accountId: account.id,
+    grade,
     subject,
     chapterNo,
     questionIds,
@@ -89,24 +87,26 @@ mcqApp.post('/quiz/grade', async (c) => {
 
 mcqApp.get('/attempts', async (c) => {
   const { db } = c.get('ctx');
-  const dependent = await getOwnedDependent(db, c.get('account'), Number(c.req.query('dependentId')));
-  const attempts = await attemptsFor(db, dependent);
+  const attempts = await selfAttempts(db, c.get('account').id);
   return c.json({ ok: true, attempts });
 });
 
-// ---- shareable practice link (teacher/parent side) -----------------------
+// ---- share links + their results (teacher/parent side) -------------------
 
-mcqApp.get('/share-link', async (c) => {
+mcqApp.post('/share-link', async (c) => {
   const { db } = c.get('ctx');
-  const dependent = await getOwnedDependent(db, c.get('account'), Number(c.req.query('dependentId')));
-  const token = await getOrCreateShareToken(db, dependent.id);
+  const token = await createShareLink(db, c.get('account').id);
   return c.json({ ok: true, token });
 });
 
-mcqApp.post('/share-link/regenerate', async (c) => {
+mcqApp.get('/share-results', async (c) => {
   const { db } = c.get('ctx');
-  const body = await c.req.json().catch(() => ({}));
-  const dependent = await getOwnedDependent(db, c.get('account'), Number(body?.dependentId));
-  const token = await regenerateShareToken(db, dependent.id);
-  return c.json({ ok: true, token });
+  const results = await shareResultsFor(db, c.get('account').id);
+  return c.json({ ok: true, results });
+});
+
+mcqApp.get('/share-results/:id', async (c) => {
+  const { db } = c.get('ctx');
+  const detail = await attemptDetail(db, c.get('account').id, Number(c.req.param('id')));
+  return c.json({ ok: true, ...detail });
 });
