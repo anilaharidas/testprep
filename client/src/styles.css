@@ -200,7 +200,6 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .choice:hover { border-color: var(--brand); }
 .choice.selected { border-color: var(--brand); background: var(--brand-tint); }
 .choice .choice-title { font-weight: 700; font-size: 1rem; }
-.choice .choice-desc { color: var(--ink-soft); font-size: 0.86rem; margin-top: 3px; }
 
 .notice {
   padding: 11px 13px;

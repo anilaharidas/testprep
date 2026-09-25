@@ -4,28 +4,42 @@ import { Card, Notice } from './ui.jsx';
 
 /**
  * The whole grade -> subject -> chapter -> section -> difficulty -> preview ->
- * quiz -> result -> review flow, shared by the authenticated Practice screen
- * (screens/PracticeNow.jsx) and the public shared-link screen
- * (screens/SharedQuiz.jsx). Those two only differ in *where the API calls go* —
- * a logged-in session vs. a share token — so this component takes that as props
- * instead of knowing about either. There's no stored profile to read a grade
- * from, so picking one is always the first step.
+ * quiz -> result -> review flow, shared by the authenticated dashboard
+ * (screens/Dashboard.jsx, embedded directly — it IS the practice flow, with an
+ * account header shown only on the landing step) and the public shared-link
+ * screen (screens/SharedQuiz.jsx). Those two only differ in *where the API
+ * calls go* — a logged-in session vs. a share token — so this component takes
+ * that as props instead of knowing about either. There's no stored profile to
+ * read a grade from, so picking one is always the first step (unless
+ * `fixedSelection` skips straight to the quiz).
  *
  * @param {string} title - breadcrumb header (e.g. account name, or the typed taker name)
  * @param {string|null} backLink - route to link "← Back to dashboard" to, or null
  *   to hide that link (the public flow has no dashboard to go back to)
  * @param {string[]} grades - selectable grades for the first step
  * @param {object} calls - { subjects, chapters, sections, difficulty, startQuiz,
- *   gradeQuiz, attempts? }, each (bar attempts) taking `grade` as its first
- *   argument. `attempts` is optional — omit it to hide the recent-practice list
- *   (the public share flow has no self-history to show).
+ *   gradeQuiz, attempts?, shareLink? }, each (bar attempts/shareLink) taking
+ *   `grade` as its first argument. `attempts` is optional — omit it to hide the
+ *   recent-practice list (the public share flow has no self-history to show).
+ *   `shareLink(selection)` is optional — omit it to hide the "Share test link"
+ *   button at the preview step (the public share flow can't mint its own links).
+ * @param {React.ReactNode} [headerSlot] - rendered above "Choose a grade" on the
+ *   landing step only (e.g. account name/logout/verification, used when this
+ *   flow doubles as the dashboard).
+ * @param {object} [fixedSelection] - { grade, subject, chapterNo, chapter,
+ *   sectionNumbers, difficulty }. When set, all selection steps are skipped —
+ *   the quiz starts immediately with this exact selection (a pre-configured
+ *   share link, where the taker doesn't pick anything).
  */
-export default function QuizFlow({ title, backLink, grades, calls }) {
+export default function QuizFlow({ title, backLink, grades, calls, headerSlot, fixedSelection }) {
   // step: grade -> subject -> chapter -> section (skippable) -> difficulty ->
-  //       preview -> quiz -> result -> review
-  const [step, setStep] = useState('grade');
+  //       preview -> quiz -> result -> review (fixedSelection skips straight
+  //       from 'loading' to 'quiz')
+  const [step, setStep] = useState(fixedSelection ? 'loading' : 'grade');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
 
   const [grade, setGrade] = useState(null);
   const [subjects, setSubjects] = useState([]);
@@ -63,6 +77,33 @@ export default function QuizFlow({ title, backLink, grades, calls }) {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---- fixed-selection auto-start (pre-configured share link) -----------
+
+  useEffect(() => {
+    if (!fixedSelection) return;
+    const { grade: g, subject: s, chapterNo, chapter, sectionNumbers: secs = [], difficulty: d } = fixedSelection;
+    setGrade(g);
+    setSubject(s);
+    setChapters([{ chapterNo, chapter }]);
+    setChapterIdx('0');
+    setSectionNumbers(secs);
+    setDifficulty(d);
+    setBusy(true);
+    setError(null);
+    calls
+      .startQuiz(g, s, chapterNo, chapter, secs, d)
+      .then((res) => {
+        setQuiz(res);
+        setCurrent(0);
+        setAnswers({});
+        setResult(null);
+        setStep('quiz');
+      })
+      .catch((err) => setError(err.message || 'Could not start the test.'))
+      .finally(() => setBusy(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -231,6 +272,30 @@ export default function QuizFlow({ title, backLink, grades, calls }) {
     }
   }
 
+  async function shareLink() {
+    if (!calls.shareLink || !chosenChapter) return;
+    setError(null);
+    setSharing(true);
+    try {
+      const { token } = await calls.shareLink({
+        grade,
+        subject,
+        chapterNo: chosenChapter.chapterNo,
+        chapter: chosenChapter.chapter,
+        sectionNumbers,
+        difficulty,
+      });
+      const url = `${window.location.origin}/share/${token}`;
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 1500);
+    } catch (err) {
+      setError(err.message || 'Could not create the link.');
+    } finally {
+      setSharing(false);
+    }
+  }
+
   function chooseAnotherSection() {
     if (sections.length > 1) {
       setSectionNumbers([]);
@@ -259,7 +324,9 @@ export default function QuizFlow({ title, backLink, grades, calls }) {
 
   return (
     <Card>
-      {step !== 'quiz' && step !== 'review' && step !== 'grade' && (
+      {headerSlot && step === 'grade' && headerSlot}
+
+      {step !== 'quiz' && step !== 'review' && step !== 'grade' && step !== 'loading' && (
         <p className="quiz-breadcrumb">
           {title}
           {grade ? ` · Grade ${grade}` : ''}
@@ -269,6 +336,8 @@ export default function QuizFlow({ title, backLink, grades, calls }) {
       )}
 
       {error && <Notice kind="error">{error}</Notice>}
+
+      {step === 'loading' && <div className="center-loading">Preparing your test…</div>}
 
       {step === 'grade' && (
         <>
@@ -302,7 +371,6 @@ export default function QuizFlow({ title, backLink, grades, calls }) {
                 onClick={() => pickSubject(s.subject)}
               >
                 <div className="choice-title">{s.subject}</div>
-                <div className="choice-desc">{s.count} questions</div>
               </button>
             ))}
           </div>
@@ -464,6 +532,9 @@ export default function QuizFlow({ title, backLink, grades, calls }) {
           busy={busy}
           onBegin={beginTest}
           onChangeSelection={changeSelection}
+          onShareLink={calls.shareLink ? shareLink : null}
+          sharing={sharing}
+          shareCopied={shareCopied}
         />
       )}
 
@@ -517,7 +588,19 @@ export default function QuizFlow({ title, backLink, grades, calls }) {
   );
 }
 
-function TestPreview({ chapter, sectionNumbers, sections, difficulty, count, busy, onBegin, onChangeSelection }) {
+function TestPreview({
+  chapter,
+  sectionNumbers,
+  sections,
+  difficulty,
+  count,
+  busy,
+  onBegin,
+  onChangeSelection,
+  onShareLink,
+  sharing,
+  shareCopied,
+}) {
   const sectionLabel =
     sectionNumbers.length === 0
       ? 'whole chapter'
@@ -540,10 +623,26 @@ function TestPreview({ chapter, sectionNumbers, sections, difficulty, count, bus
         All matching questions are included, in random order, and stay in that order once you begin.
       </p>
       <button className="btn" type="button" disabled={busy || count === 0} onClick={onBegin}>
-        {busy ? 'Starting…' : 'Begin Test'}
+        {busy ? 'Starting…' : 'Practice now'}
       </button>
+      {onShareLink && (
+        <>
+          <div style={{ height: 8 }} />
+          <button
+            className="btn secondary"
+            type="button"
+            disabled={busy || sharing || count === 0}
+            onClick={onShareLink}
+          >
+            {shareCopied ? 'Copied!' : sharing ? 'Creating link…' : 'Share test link'}
+          </button>
+          <p className="count-line" style={{ marginTop: 6, textAlign: 'center' }}>
+            Good for up to 10 completed tests. Share it however you like — WhatsApp, SMS, email.
+          </p>
+        </>
+      )}
       <div style={{ height: 8 }} />
-      <button className="btn secondary" type="button" onClick={onChangeSelection} disabled={busy}>
+      <button className="btn ghost" type="button" onClick={onChangeSelection} disabled={busy}>
         Change Selection
       </button>
     </>

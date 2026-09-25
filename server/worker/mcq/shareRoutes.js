@@ -8,7 +8,7 @@ import {
   buildQuiz,
   gradeQuiz,
 } from './service.js';
-import { resolveShareLink, consumeShareLinkAttempt } from './shareLinks.js';
+import { resolveShareLink, consumeShareLinkAttempt, fixedSelectionFor } from './shareLinks.js';
 
 // Public — no requireAuth(). A valid token IS the authorization; it isn't tied to
 // any profile, just a capped number of completed attempts (see mcq_share_link).
@@ -23,7 +23,11 @@ shareApp.use('*', async (c, next) => {
 
 shareApp.get('/', (c) => {
   const link = c.get('link');
-  return c.json({ ok: true, attemptsLeft: Math.max(0, link.max_attempts - link.used_attempts) });
+  return c.json({
+    ok: true,
+    attemptsLeft: Math.max(0, link.max_attempts - link.used_attempts),
+    selection: fixedSelectionFor(link),
+  });
 });
 
 shareApp.get('/subjects', async (c) => {
@@ -77,9 +81,12 @@ shareApp.post('/quiz', async (c) => {
   if (link.used_attempts >= link.max_attempts) {
     throw new ApiError(409, 'no_attempts_left', 'No attempts left on this link.');
   }
-  const body = await c.req.json().catch(() => ({}));
-  const { grade, subject, chapterNo, chapter, sectionNumbers, difficulty } = body || {};
-  const quiz = await buildQuiz(db, { grade, subject, chapterNo, chapter, sectionNumbers, difficulty });
+  // A pre-configured link always uses its own stored selection, never one the
+  // client sends — the taker isn't meant to pick anything. Only a legacy link
+  // (minted before selections were stored) falls back to the request body.
+  const fixed = fixedSelectionFor(link);
+  const selection = fixed || (await c.req.json().catch(() => ({})));
+  const quiz = await buildQuiz(db, selection);
   return c.json({ ok: true, ...quiz });
 });
 
@@ -87,12 +94,17 @@ shareApp.post('/quiz/grade', async (c) => {
   const { db } = c.get('ctx');
   const link = c.get('link');
   const body = await c.req.json().catch(() => ({}));
-  const { takerName, grade, subject, chapterNo, questionIds, answers } = body || {};
+  const { takerName, questionIds, answers } = body || {};
   const cleanName = String(takerName || '').trim();
   if (cleanName.length < 1) throw new ApiError(400, 'bad_name', 'Enter your name.');
 
   const claimed = await consumeShareLinkAttempt(db, link.token);
   if (!claimed) throw new ApiError(409, 'no_attempts_left', 'No attempts left on this link.');
+
+  const fixed = fixedSelectionFor(link);
+  const grade = fixed?.grade || body.grade;
+  const subject = fixed?.subject || body.subject;
+  const chapterNo = fixed?.chapterNo || body.chapterNo;
 
   const result = await gradeQuiz(db, {
     accountId: link.account_id,

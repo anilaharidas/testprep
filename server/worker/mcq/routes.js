@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { ApiError } from '../util.js';
 import { requireAuth } from '../middleware.js';
 import {
   subjectsForGrade,
@@ -101,7 +102,19 @@ mcqApp.get('/attempts/:id', async (c) => {
 
 mcqApp.post('/share-link', async (c) => {
   const { db } = c.get('ctx');
-  const token = await createShareLink(db, c.get('account').id);
+  const body = await c.req.json().catch(() => ({}));
+  const { grade, subject, chapterNo, chapter, sectionNumbers, difficulty } = body || {};
+  if (!grade || !subject || !chapterNo || !chapter || !difficulty) {
+    throw new ApiError(400, 'bad_selection', 'Choose a chapter and difficulty before sharing a link.');
+  }
+  const token = await createShareLink(db, c.get('account').id, {
+    grade,
+    subject,
+    chapterNo,
+    chapter,
+    sectionNumbers,
+    difficulty,
+  });
   return c.json({ ok: true, token });
 });
 

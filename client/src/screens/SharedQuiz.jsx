@@ -7,10 +7,11 @@ import QuizFlow from '../QuizFlow.jsx';
 
 /**
  * Public practice-link screen — opened directly, no login. The token is good
- * for a capped number of completed tests (see server/worker/mcq/shareLinks.js);
- * whoever opens it identifies themselves by typing a name, then picks their own
- * grade/subject/chapter/section/difficulty, same as the account-holder's own
- * Practice Now flow.
+ * for a capped number of completed tests (see server/worker/mcq/shareLinks.js).
+ * Whoever opens it identifies themselves by typing a name, then starts the
+ * exact grade/chapter/section/difficulty the link was created for (no picking
+ * anything) — or, for a link minted before selections were stored, picks
+ * their own, same as the account-holder's own practice flow.
  */
 export default function SharedQuiz() {
   const { token } = useParams();
@@ -105,6 +106,7 @@ export default function SharedQuiz() {
         title={takerName}
         backLink={null}
         grades={cfg.grades}
+        fixedSelection={info.selection}
         calls={{
           subjects: (grade) => api.shareSubjects(token, grade),
           chapters: (grade, subject) => api.shareChapters(token, grade, subject),

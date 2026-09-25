@@ -5,33 +5,16 @@ import { useAuth } from '../auth.jsx';
 import { useAppConfig } from '../useAppConfig.js';
 import { Card, Notice } from '../ui.jsx';
 import OtpStep from '../OtpStep.jsx';
+import QuizFlow from '../QuizFlow.jsx';
 
 export default function Dashboard() {
   const { account, setAccount, logout } = useAuth();
   const cfg = useAppConfig();
   const [error, setError] = useState(null);
-  const [copied, setCopied] = useState(false);
-  const [sharing, setSharing] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [verifySendMeta, setVerifySendMeta] = useState(null);
 
   if (!account) return null;
-
-  async function shareLink() {
-    setError(null);
-    setSharing(true);
-    try {
-      const { token } = await api.mcqShareLink();
-      const url = `${window.location.origin}/share/${token}`;
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch (err) {
-      setError(err.message || 'Could not create the link.');
-    } finally {
-      setSharing(false);
-    }
-  }
 
   async function startVerify() {
     setError(null);
@@ -71,8 +54,16 @@ export default function Dashboard() {
     );
   }
 
-  return (
-    <Card>
+  if (!cfg) {
+    return (
+      <Card>
+        <div className="center-loading">Loading…</div>
+      </Card>
+    );
+  }
+
+  const headerSlot = (
+    <>
       <div className="dashboard-head">
         <div>
           <h1 style={{ marginBottom: 2 }}>{account.name}</h1>
@@ -97,19 +88,6 @@ export default function Dashboard() {
       {error && <Notice kind="error">{error}</Notice>}
 
       <div className="divider" />
-
-      <Link className="btn" to="/practice">
-        Practice now
-      </Link>
-      <div style={{ height: 8 }} />
-      <button className="btn secondary" type="button" onClick={shareLink} disabled={sharing}>
-        {copied ? 'Copied!' : sharing ? 'Creating link…' : 'Share test link'}
-      </button>
-      <p className="count-line" style={{ marginTop: 6 }}>
-        Good for up to 4 completed tests. Share it however you like — WhatsApp, SMS, email.
-      </p>
-
-      <div className="divider" />
       <div className="row-between">
         <Link className="btn-link" to="/history">
           Practice history →
@@ -118,6 +96,29 @@ export default function Dashboard() {
           Shared test results →
         </Link>
       </div>
-    </Card>
+      <div className="divider" />
+    </>
+  );
+
+  return (
+    <QuizFlow
+      title={account.name}
+      backLink={null}
+      grades={cfg.grades}
+      headerSlot={headerSlot}
+      calls={{
+        subjects: (grade) => api.mcqSubjects(grade),
+        chapters: (grade, subject) => api.mcqChapters(grade, subject),
+        sections: (grade, subject, chapterNo, chapter) => api.mcqSections(grade, subject, chapterNo, chapter),
+        difficulty: (grade, subject, chapterNo, chapter, sectionNumbers) =>
+          api.mcqDifficulty(grade, subject, chapterNo, chapter, sectionNumbers),
+        startQuiz: (grade, subject, chapterNo, chapter, sectionNumbers, difficulty) =>
+          api.mcqStartQuiz(grade, subject, chapterNo, chapter, sectionNumbers, difficulty),
+        gradeQuiz: (grade, subject, chapterNo, questionIds, answers) =>
+          api.mcqGradeQuiz(grade, subject, chapterNo, questionIds, answers),
+        attempts: () => api.mcqAttempts(),
+        shareLink: (selection) => api.mcqShareLink(selection),
+      }}
+    />
   );
 }
