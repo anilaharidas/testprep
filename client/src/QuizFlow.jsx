@@ -31,12 +31,14 @@ const QUIZ_LEN = 10;
  * @param {React.ReactNode} [headerSlot] - rendered above "Choose a grade" on the
  *   landing step only (e.g. account name/logout/verification, used when this
  *   flow doubles as the dashboard).
+ * @param {React.ReactNode} [historyLinks] - rendered on the Test preview step
+ *   only (e.g. "Practice history" / "Shared test results" links).
  * @param {object} [fixedSelection] - { grade, subject, chapterNo, chapter,
  *   sectionNumbers, difficulty }. When set, all selection steps are skipped —
  *   the quiz starts immediately with this exact selection (a pre-configured
  *   share link, where the taker doesn't pick anything).
  */
-export default function QuizFlow({ title, backLink, grades, calls, headerSlot, fixedSelection }) {
+export default function QuizFlow({ title, backLink, grades, calls, headerSlot, historyLinks, fixedSelection }) {
   // step: grade -> subject -> chapter -> section (skippable) -> difficulty ->
   //       preview -> quiz -> result -> review (fixedSelection skips straight
   //       from 'loading' to 'quiz')
@@ -340,6 +342,8 @@ export default function QuizFlow({ title, backLink, grades, calls, headerSlot, f
         </p>
       )}
 
+      {historyLinks && step === 'preview' && historyLinks}
+
       {error && <Notice kind="error">{error}</Notice>}
 
       {step === 'loading' && <div className="center-loading">Preparing your test…</div>}
@@ -622,9 +626,6 @@ function TestPreview({
         <div className="quiz-preview-number">{count}</div>
         <div className="muted">questions in this practice test</div>
       </div>
-      <p className="count-line" style={{ textAlign: 'center' }}>
-        Picked at random from all matching questions, and stay in that order once you begin.
-      </p>
       <button className="btn" type="button" disabled={busy || count === 0} onClick={onBegin}>
         {busy ? 'Starting…' : 'Practice now'}
       </button>

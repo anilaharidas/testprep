@@ -86,18 +86,19 @@ export default function Dashboard() {
       )}
 
       {error && <Notice kind="error">{error}</Notice>}
-
-      <div className="divider" />
-      <div className="row-between">
-        <Link className="btn-link" to="/history">
-          Practice history →
-        </Link>
-        <Link className="btn-link" to="/results">
-          Shared test results →
-        </Link>
-      </div>
       <div className="divider" />
     </>
+  );
+
+  const historyLinks = (
+    <div className="row-between quiz-history-links">
+      <Link className="btn-link" to="/history">
+        Practice history →
+      </Link>
+      <Link className="btn-link" to="/results">
+        Shared test results →
+      </Link>
+    </div>
   );
 
   return (
@@ -106,6 +107,7 @@ export default function Dashboard() {
       backLink={null}
       grades={cfg.grades}
       headerSlot={headerSlot}
+      historyLinks={historyLinks}
       calls={{
         subjects: (grade) => api.mcqSubjects(grade),
         chapters: (grade, subject) => api.mcqChapters(grade, subject),
