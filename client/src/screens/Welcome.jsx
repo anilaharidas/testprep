@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Card } from '../ui.jsx';
 
 export default function Welcome() {
@@ -10,13 +10,12 @@ export default function Welcome() {
         A questionnaire app for high-school test prep. Practice yourself, or share a test link
         with your students or children — no profiles to set up. Free to use.
       </p>
-      <button className="btn" onClick={() => nav('/register')}>
-        Create an account
+      <button className="btn" onClick={() => nav('/login')}>
+        Log in
       </button>
-      <div style={{ height: 10 }} />
-      <button className="btn secondary" onClick={() => nav('/login')}>
-        I already have an account
-      </button>
+      <p className="foot-links">
+        Don't have an account? <Link to="/register">Create one</Link>
+      </p>
       <p className="foot-links">
         Identity is verified with a one-time code on WhatsApp.
       </p>
