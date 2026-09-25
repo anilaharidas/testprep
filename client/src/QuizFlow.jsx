@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, Notice } from './ui.jsx';
 
+// Keep in sync with QUIZ_LEN in server/worker/mcq/service.js — a practice
+// test is at most this many questions, so the preview shouldn't promise more
+// than buildQuiz will actually serve.
+const QUIZ_LEN = 10;
+
 /**
  * The whole grade -> subject -> chapter -> section -> difficulty -> preview ->
  * quiz -> result -> review flow, shared by the authenticated dashboard
@@ -428,7 +433,6 @@ export default function QuizFlow({ title, backLink, grades, calls, headerSlot, f
                   {c.chapterNo ? `${c.chapterNo}. ` : ''}
                   {c.chapter}
                 </span>
-                <span className="quiz-radio-count">{c.count}</span>
               </label>
             ))}
             {filteredChapters.length === 0 && <p className="muted">No chapters match "{chapterFilter}".</p>}
@@ -455,7 +459,6 @@ export default function QuizFlow({ title, backLink, grades, calls, headerSlot, f
                   {s.sectionNumber ? `${s.sectionNumber} ` : ''}
                   {s.section}
                 </span>
-                <span className="quiz-radio-count">{s.count}</span>
               </label>
             ))}
           </div>
@@ -528,7 +531,7 @@ export default function QuizFlow({ title, backLink, grades, calls, headerSlot, f
           sectionNumbers={sectionNumbers}
           sections={sections}
           difficulty={difficulty}
-          count={levels.find((l) => l.level === difficulty)?.count || 0}
+          count={Math.min(levels.find((l) => l.level === difficulty)?.count || 0, QUIZ_LEN)}
           busy={busy}
           onBegin={beginTest}
           onChangeSelection={changeSelection}
@@ -620,7 +623,7 @@ function TestPreview({
         <div className="muted">questions in this practice test</div>
       </div>
       <p className="count-line" style={{ textAlign: 'center' }}>
-        All matching questions are included, in random order, and stay in that order once you begin.
+        Picked at random from all matching questions, and stay in that order once you begin.
       </p>
       <button className="btn" type="button" disabled={busy || count === 0} onClick={onBegin}>
         {busy ? 'Starting…' : 'Practice now'}

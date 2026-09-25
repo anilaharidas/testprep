@@ -1,6 +1,6 @@
 import { ApiError } from '../util.js';
 
-const MAX_QUIZ_LEN = 150; // defensive cap; real per-section/difficulty counts run far lower
+const QUIZ_LEN = 10; // a practice test is at most this many questions, picked at random
 
 function toOptions(row) {
   const options = { A: row.option_a, B: row.option_b };
@@ -129,15 +129,17 @@ export async function buildQuiz(db, { grade, subject, chapterNo, chapter, sectio
     )
     .all(...params);
 
-  // Defensive: chapter is fixed here so import-time per-chapter dedup already
-  // guarantees unique question text, but a stray repeat should never surface.
+  // Dedup by question text (chapter is fixed here so import-time per-chapter
+  // dedup already guarantees this, but a stray repeat should never surface),
+  // then cap at QUIZ_LEN. Rows are already ORDER BY RANDOM(), so capping here
+  // is a random sample of whatever matched, not always the same 10.
   const seen = new Set();
   const deduped = [];
   for (const r of rows) {
     if (seen.has(r.question)) continue;
     seen.add(r.question);
     deduped.push(r);
-    if (deduped.length >= MAX_QUIZ_LEN) break;
+    if (deduped.length >= QUIZ_LEN) break;
   }
 
   if (deduped.length === 0) {
